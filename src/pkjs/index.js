@@ -283,26 +283,27 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<h1>Strava GPX Mailer</h1>' +
 '<p class="sub">Enter your Cloudflare Worker details. Settings are stored on your phone only.</p>' +
 '<label>Worker URL</label>' +
-'<input id="u" type="url" placeholder="https://pebble-strava.xxx.workers.dev">' +
+'<input id="u" type="url" value="__URL__" placeholder="https://pebble-strava.xxx.workers.dev">' +
 '<p class="hint">From wrangler deploy output.</p>' +
 '<label>Upload Secret</label>' +
-'<input id="s" type="password" placeholder="your_upload_secret" autocomplete="current-password">' +
+'<input id="s" type="text" value="__SECRET__" placeholder="your_upload_secret">' +
 '<p class="hint">The UPLOAD_SECRET you set with wrangler secret put.</p>' +
 '<button onclick="save()">Save &amp; Close</button>' +
 '<script>' +
-'var u=document.getElementById("u"),s=document.getElementById("s");' +
-'u.value=decodeURIComponent("__URL__");' +
-'s.value=decodeURIComponent("__SECRET__");' +
 'function save(){' +
-'  var d={workerUrl:u.value.trim(),workerSecret:s.value.trim()};' +
+'  var d={workerUrl:document.getElementById("u").value.trim(),workerSecret:document.getElementById("s").value.trim()};' +
 '  location.href="pebblejs://close?data="+encodeURIComponent(JSON.stringify(d));' +
 '}' +
 '</script></body></html>';
 
+function htmlEscape(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
 Pebble.addEventListener('showConfiguration', function() {
   var html = CONFIG_HTML
-    .replace('__URL__',    encodeURIComponent(WORKER_URL    || ''))
-    .replace('__SECRET__', encodeURIComponent(WORKER_SECRET || ''));
+    .replace('__URL__',    htmlEscape(WORKER_URL))
+    .replace('__SECRET__', htmlEscape(WORKER_SECRET));
   Pebble.openURL('data:text/html,' + encodeURIComponent(html));
 });
 
