@@ -12,8 +12,9 @@ var sport         = 'run';    // 'run' or 'ride'
 var isActive      = false;
 var totalDist     = 0;        // meters
 var lastPos       = null;     // { lat, lon }
-var gpsTick       = 0;
+var gpsTick        = 0;
 var GPS_SEND_EVERY = 10;      // send AppMessage every N fixes (~10 s at 1 Hz GPS)
+var preWarmFix     = false;   // tracks whether we've notified the watch of a pre-warm fix
 
 // Haversine distance in meters between two lat/lon pairs
 function haversine(lat1, lon1, lat2, lon2) {
@@ -51,7 +52,7 @@ function onPosition(pos) {
     trackpoints.push({ lat: lat, lon: lon, alt: alt, time: ts });
 
     gpsTick++;
-    // Always send on first fix so the watch shows GPS:Y immediately;
+    // Always send on first fix so the watch shows GPS ✓ immediately;
     // after that, throttle to every GPS_SEND_EVERY fixes to reduce BLE traffic.
     if (gpsTick === 1 || gpsTick >= GPS_SEND_EVERY) {
       if (gpsTick >= GPS_SEND_EVERY) gpsTick = 0;
@@ -61,6 +62,10 @@ function onPosition(pos) {
         'GPS_HAS_FIX':  1
       });
     }
+  } else if (!preWarmFix) {
+    // Pre-warm phase: first fix acquired — notify the select screen once
+    preWarmFix = true;
+    sendToWatch({ 'GPS_HAS_FIX': 1 });
   }
 }
 
@@ -288,6 +293,7 @@ Pebble.addEventListener('appmessage', function(e) {
       totalDist   = 0;
       lastPos     = null;
       gpsTick     = 0;
+      preWarmFix  = false;
       isActive    = true;
       if (!watchId) startGPS();  // already running if pre-warmed on ready
       console.log('Workout started: ' + sport);
