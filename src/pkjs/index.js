@@ -90,8 +90,8 @@ function onPositionError(err) {
   // err.code: 1=PERMISSION_DENIED 2=POSITION_UNAVAILABLE 3=TIMEOUT
   console.log('GPS error ' + err.code + ': ' + err.message);
   if (err.code === 3) {
-    stopGPS();
-    startGPS();  // GPS-- label already shows searching; silent retry
+    // Timeout is expected indoors — setInterval will retry automatically
+    console.log('GPS timeout, will retry in ' + GPS_POLL_MS + 'ms');
   } else if (err.code === 1) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS: no permission' });
   } else {
@@ -119,21 +119,29 @@ function pingWorker() {
   xhr.send();
 }
 
+var GPS_POLL_MS = 5000;  // poll interval for getCurrentPosition loop
+
 function startGPS() {
   if (!navigator.geolocation) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'No geoloc API' });
     return;
   }
-  watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
-    enableHighAccuracy: true,
-    maximumAge:         5000,
-    timeout:            60000
-  });
+  // watchPosition is unreliable in Pebble's Duktape JS runtime on Android —
+  // use getCurrentPosition in a setInterval loop instead.
+  function poll() {
+    navigator.geolocation.getCurrentPosition(onPosition, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge:         3000,
+      timeout:            15000
+    });
+  }
+  poll();
+  watchId = setInterval(poll, GPS_POLL_MS);
 }
 
 function stopGPS() {
   if (watchId !== null) {
-    navigator.geolocation.clearWatch(watchId);
+    clearInterval(watchId);
     watchId = null;
   }
 }
