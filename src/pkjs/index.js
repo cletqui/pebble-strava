@@ -121,19 +121,32 @@ function pingWorker() {
 
 var GPS_POLL_MS = 5000;  // poll interval for getCurrentPosition loop
 
+var gpsPollCount = 0;
+
 function startGPS() {
   if (!navigator.geolocation) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'No geoloc API' });
     return;
   }
-  // watchPosition is unreliable in Pebble's Duktape JS runtime on Android —
-  // use getCurrentPosition in a setInterval loop instead.
   function poll() {
-    navigator.geolocation.getCurrentPosition(onPosition, onPositionError, {
-      enableHighAccuracy: true,
-      maximumAge:         3000,
-      timeout:            15000
-    });
+    gpsPollCount++;
+    // Show poll count on watch for first 3 polls so we can confirm the loop runs
+    if (gpsPollCount <= 3) {
+      sendToWatch({ 'UPLOAD_MSG': 'GPS poll ' + gpsPollCount });
+    }
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        console.log('GPS cb ok poll#' + gpsPollCount);
+        onPosition(pos);
+      },
+      function(err) {
+        var code = err ? err.code : -1;
+        console.log('GPS cb err poll#' + gpsPollCount + ' code=' + code);
+        sendToWatch({ 'UPLOAD_MSG': 'GPS err:' + code });
+        onPositionError(err);
+      },
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
+    );
   }
   poll();
   watchId = setInterval(poll, GPS_POLL_MS);
