@@ -73,11 +73,11 @@ function onPosition(pos) {
     }
   } else {
     // Not in workout: keep GPS status current on the select screen.
-    // Throttle the same as the active path so we don't flood BLE.
     gpsTick++;
     if (gpsTick === 1 || gpsTick >= GPS_SEND_EVERY) {
       if (gpsTick >= GPS_SEND_EVERY) gpsTick = 0;
       sendToWatch({ 'GPS_HAS_FIX': 1 });
+      console.log('GPS fix: ' + lat.toFixed(4) + ',' + lon.toFixed(4));
     }
   }
 }
@@ -257,8 +257,10 @@ Pebble.addEventListener('ready', function() {
   WORKER_URL    = storageGet('workerUrl')    || WORKER_URL;
   WORKER_SECRET = storageGet('workerSecret') || WORKER_SECRET;
   if (!WORKER_URL) {
-    sendToWatch({ 'CRED_REQUEST': 1 });  // ask watch, localStorage may have been cleared
+    sendToWatch({ 'CRED_REQUEST': 1 });
+    sendToWatch({ 'UPLOAD_MSG': 'No URL: open Settings' });
   } else {
+    sendToWatch({ 'UPLOAD_MSG': 'URL ok, pinging...' });
     pingWorker();
   }
   startGPS();
