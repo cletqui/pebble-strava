@@ -19,7 +19,7 @@
     "watchapp": {
       "watchface": false
     },
-    "capabilities": ["configurable", "health"],
+    "capabilities": ["location", "configurable", "health"],
     "messageKeys": [
       "CMD_ACTION",
       "CMD_SPORT",
