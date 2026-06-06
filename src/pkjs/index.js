@@ -1,4 +1,9 @@
-/* Pebble companion: GPS tracking + Strava upload */
+/* Pebble companion: GPS tracking + GPX upload via CF Worker */
+
+// --- Configuration (fill in after deploying the Worker) ---
+var WORKER_URL    = 'https://pebble-strava.YOUR_SUBDOMAIN.workers.dev';
+var WORKER_SECRET = 'YOUR_SECRET_HERE';  // must match UPLOAD_SECRET in Worker
+// ----------------------------------------------------------
 
 var trackpoints = [];
 var hrSamples   = [];
@@ -73,9 +78,8 @@ function stopGPS() {
 }
 
 // Build a GPX string with embedded HR data
-function buildGPX() {
-  var actName = sport === 'ride' ? 'Cycling' : 'Running';
-  var date    = trackpoints.length > 0
+function buildGPX(activityName) {
+  var date = trackpoints.length > 0
     ? trackpoints[0].time.split('T')[0]
     : new Date().toISOString().split('T')[0];
 
@@ -84,13 +88,13 @@ function buildGPX() {
     '  xmlns="http://www.topografix.com/GPX/1/1"\n' +
     '  xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">\n' +
     '<trk>\n' +
-    '<name>' + actName + ' ' + date + '</name>\n' +
+    '<name>' + activityName + '</name>\n' +
     '<type>' + (sport === 'ride' ? '1' : '9') + '</type>\n' +
     '<trkseg>\n';
 
   for (var i = 0; i < trackpoints.length; i++) {
-    var tp    = trackpoints[i];
-    var tpMs  = new Date(tp.time).getTime();
+    var tp   = trackpoints[i];
+    var tpMs = new Date(tp.time).getTime();
 
     // Find the HR sample closest in time to this trackpoint
     var bestHr   = 0;
@@ -119,135 +123,35 @@ function buildGPX() {
   return xml;
 }
 
-// Refresh an expired access token, then call cb(newAccessToken) or cb(null)
-function refreshAccessToken(cb) {
-  var clientId     = localStorage.getItem('strava_client_id');
-  var clientSecret = localStorage.getItem('strava_client_secret');
-  var refreshToken = localStorage.getItem('strava_refresh_token');
-
-  if (!clientId || !clientSecret || !refreshToken) { cb(null); return; }
+// Post GPX to the Cloudflare Worker, which emails it to you
+function uploadToWorker(gpxData, activityName) {
+  sendToWatch({ 'UPLOAD_STATUS': 0 });
 
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', 'https://www.strava.com/oauth/token');
-  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  xhr.open('POST', WORKER_URL + '/upload');
+  xhr.setRequestHeader('Content-Type',   'application/json');
+  xhr.setRequestHeader('Authorization',  'Bearer ' + WORKER_SECRET);
   xhr.onload = function() {
-    if (xhr.status === 200) {
+    try {
       var data = JSON.parse(xhr.responseText);
-      localStorage.setItem('strava_access_token',  data.access_token);
-      localStorage.setItem('strava_refresh_token', data.refresh_token);
-      localStorage.setItem('strava_expires_at',    String(data.expires_at));
-      cb(data.access_token);
-    } else {
-      cb(null);
-    }
-  };
-  xhr.onerror = function() { cb(null); };
-  xhr.send(
-    'client_id='     + encodeURIComponent(clientId) +
-    '&client_secret='+ encodeURIComponent(clientSecret) +
-    '&refresh_token='+ encodeURIComponent(refreshToken) +
-    '&grant_type=refresh_token'
-  );
-}
-
-// Upload GPX to Strava, send result to watch
-function uploadGPX(gpxData) {
-  var accessToken  = localStorage.getItem('strava_access_token');
-  var expiresAt    = parseInt(localStorage.getItem('strava_expires_at') || '0', 10);
-  var nowSec       = Math.floor(Date.now() / 1000);
-
-  if (!accessToken) {
-    sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Not authenticated' });
-    return;
-  }
-
-  if (expiresAt && expiresAt < nowSec) {
-    refreshAccessToken(function(token) {
-      if (token) doUpload(gpxData, token);
-      else sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Auth expired' });
-    });
-  } else {
-    doUpload(gpxData, accessToken);
-  }
-}
-
-function doUpload(gpxData, accessToken) {
-  sendToWatch({ 'UPLOAD_STATUS': 0 });  // uploading
-
-  var boundary = 'PebbleStrava' + Date.now();
-  var CRLF     = '\r\n';
-
-  var body =
-    '--' + boundary + CRLF +
-    'Content-Disposition: form-data; name="activity_type"' + CRLF + CRLF +
-    sport + CRLF +
-    '--' + boundary + CRLF +
-    'Content-Disposition: form-data; name="data_type"' + CRLF + CRLF +
-    'gpx' + CRLF +
-    '--' + boundary + CRLF +
-    'Content-Disposition: form-data; name="name"' + CRLF + CRLF +
-    (sport === 'ride' ? 'Cycling' : 'Running') + ' - Pebble' + CRLF +
-    '--' + boundary + CRLF +
-    'Content-Disposition: form-data; name="file"; filename="workout.gpx"' + CRLF +
-    'Content-Type: application/gpx+xml' + CRLF + CRLF +
-    gpxData + CRLF +
-    '--' + boundary + '--' + CRLF;
-
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', 'https://www.strava.com/api/v3/uploads');
-  xhr.setRequestHeader('Authorization',  'Bearer ' + accessToken);
-  xhr.setRequestHeader('Content-Type',   'multipart/form-data; boundary=' + boundary);
-  xhr.onload = function() {
-    if (xhr.status === 201) {
-      try {
-        var res = JSON.parse(xhr.responseText);
-        setTimeout(function() { pollUpload(res.id, accessToken, 0); }, 2000);
-      } catch(e) {
-        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Bad response' });
+      if (data.ok) {
+        sendToWatch({ 'UPLOAD_STATUS': 1 });
+      } else {
+        var msg = (data.error || 'Worker error').substring(0, 30);
+        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': msg });
       }
-    } else {
-      var msg = xhr.status.toString();
-      try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
-      sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': msg.substring(0, 30) });
+    } catch (e) {
+      sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Bad response' });
     }
   };
   xhr.onerror = function() {
     sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Network error' });
   };
-  xhr.send(body);
-}
-
-function pollUpload(uploadId, accessToken, attempts) {
-  if (attempts >= 12) {
-    sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Timeout' });
-    return;
-  }
-
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', 'https://www.strava.com/api/v3/uploads/' + uploadId);
-  xhr.setRequestHeader('Authorization', 'Bearer ' + accessToken);
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      try {
-        var res = JSON.parse(xhr.responseText);
-        if (res.activity_id) {
-          sendToWatch({ 'UPLOAD_STATUS': 1 });  // success
-        } else if (res.error) {
-          sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': res.error.substring(0, 30) });
-        } else {
-          setTimeout(function() { pollUpload(uploadId, accessToken, attempts + 1); }, 3000);
-        }
-      } catch(e) {
-        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Bad response' });
-      }
-    } else {
-      sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Poll failed' });
-    }
-  };
-  xhr.onerror = function() {
-    sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Network error' });
-  };
-  xhr.send();
+  xhr.send(JSON.stringify({
+    gpx:   gpxData,
+    sport: sport,
+    name:  activityName,
+  }));
 }
 
 // === Pebble event listeners ===
@@ -284,39 +188,18 @@ Pebble.addEventListener('appmessage', function(e) {
         sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'No GPS data' });
         return;
       }
-      var gpx = buildGPX();
-      uploadGPX(gpx);
+      var date         = new Date().toISOString().split('T')[0];
+      var activityName = (sport === 'ride' ? 'Cycling' : 'Running') + ' ' + date;
+      var gpx          = buildGPX(activityName);
+      uploadToWorker(gpx, activityName);
 
     } else if (action === 2) {  // PAUSE
       isActive = false;
-      // Keep GPS watch running but don't accumulate distance; reset lastPos so
-      // the first fix after resume doesn't add a teleport jump.
+      // Reset lastPos so the first fix after resume doesn't add a jump
       lastPos = null;
 
     } else if (action === 3) {  // RESUME
       isActive = true;
     }
-  }
-});
-
-// Config page: save tokens returned from OAuth flow
-Pebble.addEventListener('showConfiguration', function() {
-  Pebble.openURL('https://cletqui.github.io/pebble-strava/config/');
-});
-
-Pebble.addEventListener('webviewclosed', function(e) {
-  if (!e.response || e.response === 'CANCELLED') return;
-  try {
-    var cfg = JSON.parse(decodeURIComponent(e.response));
-    if (cfg.access_token) {
-      localStorage.setItem('strava_access_token',  cfg.access_token);
-      localStorage.setItem('strava_refresh_token', cfg.refresh_token);
-      localStorage.setItem('strava_expires_at',    String(cfg.expires_at));
-      localStorage.setItem('strava_client_id',     cfg.client_id);
-      localStorage.setItem('strava_client_secret', cfg.client_secret);
-      console.log('Strava tokens saved');
-    }
-  } catch (e) {
-    console.log('Config parse error: ' + e);
   }
 });
