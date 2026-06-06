@@ -34,7 +34,8 @@
         {
           "type": "font",
           "name": "FONT_ICONS_14",
-          "file": "fonts/icons.ttf"
+          "file": "icons.ttf",
+          "characterRegex": "[\\u0020-\\u007E\\u25B2\\u25B6\\u25BC\\u2713]"
         }
       ]
     }
