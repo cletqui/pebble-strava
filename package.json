@@ -1,0 +1,36 @@
+{
+  "name": "pebble-strava",
+  "author": "clet",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Strava Recorder",
+    "shortName": "Strava",
+    "longName": "Strava Workout Recorder",
+    "uuid": "2d64ac7d-a175-4bb0-ba11-8c1997cff52d",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "CMD_ACTION",
+      "CMD_SPORT",
+      "HR_BPM",
+      "GPS_DISTANCE",
+      "GPS_SPEED",
+      "GPS_HAS_FIX",
+      "UPLOAD_STATUS",
+      "UPLOAD_MSG"
+    ],
+    "resources": {
+      "media": []
+    },
+    "configurationUrl": "https://cletqui.github.io/pebble-strava/config/"
+  }
+}
