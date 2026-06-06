@@ -99,19 +99,29 @@ static void fmt_speed(char *buf, size_t n, uint32_t cms, int sport) {
   }
 }
 
+// Forward declaration needed because prv_inbox_received calls update_workout_display
+// before it is defined (GPS display refresh on receipt rather than waiting for timer tick)
+static void update_workout_display(void);
+
 // === AppMessage ===
 
 static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
   Tuple *t;
+  bool gps_updated = false;
 
   t = dict_find(iter, MESSAGE_KEY_GPS_DISTANCE);
-  if (t) s_distance_m = (uint32_t)t->value->int32;
+  if (t) { s_distance_m = (uint32_t)t->value->int32; gps_updated = true; }
 
   t = dict_find(iter, MESSAGE_KEY_GPS_SPEED);
-  if (t) s_speed_cms = (uint32_t)t->value->int32;
+  if (t) { s_speed_cms = (uint32_t)t->value->int32; gps_updated = true; }
 
   t = dict_find(iter, MESSAGE_KEY_GPS_HAS_FIX);
-  if (t) s_gps_fix = (bool)t->value->int8;
+  if (t) { s_gps_fix = (bool)t->value->int8; gps_updated = true; }
+
+  // Refresh display immediately on GPS update so distance/speed don't lag
+  if (gps_updated && s_workout_win == window_stack_get_top_window()) {
+    update_workout_display();
+  }
 
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
   if (t) {
@@ -119,12 +129,14 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     if (status == UPLOAD_SUCCESS) {
       s_state = STATE_DONE;
       snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Saved! BACK to exit");
+      APP_LOG(APP_LOG_LEVEL_INFO, "Upload succeeded");
       vibes_double_pulse();
     } else if (status == UPLOAD_ERROR) {
       s_state = STATE_DONE;
       Tuple *msg = dict_find(iter, MESSAGE_KEY_UPLOAD_MSG);
       if (msg) snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Error: %.24s", msg->value->cstring);
       else     snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Upload failed");
+      APP_LOG(APP_LOG_LEVEL_ERROR, "Upload error: %s", s_wk_bottom_buf);
       vibes_long_pulse();
     }
     if (s_workout_win == window_stack_get_top_window()) {
@@ -240,11 +252,13 @@ static void action_start(void) {
   prv_send_cmd(CMD_START);
   start_timer();
 
+  APP_LOG(APP_LOG_LEVEL_INFO, "Workout started: sport=%d", s_sport);
+  // prv_workout_load calls update_workout_display() on push
   window_stack_push(s_workout_win, true);
-  update_workout_display();
 }
 
 static void action_pause(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Paused at %lus", (unsigned long)s_elapsed_secs);
   s_state = STATE_PAUSED;
   stop_timer();
   prv_send_cmd(CMD_PAUSE);
@@ -253,6 +267,7 @@ static void action_pause(void) {
 }
 
 static void action_resume(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Resumed");
   s_state = STATE_ACTIVE;
   prv_send_cmd(CMD_RESUME);
   start_timer();
@@ -261,6 +276,7 @@ static void action_resume(void) {
 }
 
 static void action_stop(void) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Stopped: elapsed=%lus dist=%lum", (unsigned long)s_elapsed_secs, (unsigned long)s_distance_m);
   s_state = STATE_UPLOADING;
   stop_timer();
   prv_send_cmd(CMD_STOP);

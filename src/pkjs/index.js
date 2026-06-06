@@ -186,7 +186,7 @@ function doUpload(gpxData, accessToken) {
     'gpx' + CRLF +
     '--' + boundary + CRLF +
     'Content-Disposition: form-data; name="name"' + CRLF + CRLF +
-    (sport === 'ride' ? 'Cycling' : 'Running') + ' — Pebble' + CRLF +
+    (sport === 'ride' ? 'Cycling' : 'Running') + ' - Pebble' + CRLF +
     '--' + boundary + CRLF +
     'Content-Disposition: form-data; name="file"; filename="workout.gpx"' + CRLF +
     'Content-Type: application/gpx+xml' + CRLF + CRLF +
@@ -199,8 +199,12 @@ function doUpload(gpxData, accessToken) {
   xhr.setRequestHeader('Content-Type',   'multipart/form-data; boundary=' + boundary);
   xhr.onload = function() {
     if (xhr.status === 201) {
-      var res = JSON.parse(xhr.responseText);
-      setTimeout(function() { pollUpload(res.id, accessToken, 0); }, 2000);
+      try {
+        var res = JSON.parse(xhr.responseText);
+        setTimeout(function() { pollUpload(res.id, accessToken, 0); }, 2000);
+      } catch(e) {
+        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Bad response' });
+      }
     } else {
       var msg = xhr.status.toString();
       try { msg = JSON.parse(xhr.responseText).message || msg; } catch(e) {}
@@ -224,13 +228,17 @@ function pollUpload(uploadId, accessToken, attempts) {
   xhr.setRequestHeader('Authorization', 'Bearer ' + accessToken);
   xhr.onload = function() {
     if (xhr.status === 200) {
-      var res = JSON.parse(xhr.responseText);
-      if (res.activity_id) {
-        sendToWatch({ 'UPLOAD_STATUS': 1 });  // success
-      } else if (res.error) {
-        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': res.error.substring(0, 30) });
-      } else {
-        setTimeout(function() { pollUpload(uploadId, accessToken, attempts + 1); }, 3000);
+      try {
+        var res = JSON.parse(xhr.responseText);
+        if (res.activity_id) {
+          sendToWatch({ 'UPLOAD_STATUS': 1 });  // success
+        } else if (res.error) {
+          sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': res.error.substring(0, 30) });
+        } else {
+          setTimeout(function() { pollUpload(uploadId, accessToken, attempts + 1); }, 3000);
+        }
+      } catch(e) {
+        sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Bad response' });
       }
     } else {
       sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Poll failed' });
