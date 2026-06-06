@@ -481,7 +481,7 @@ static void prv_update_gps_label(void) {
 
   const char *wkr = s_worker_status == 1 ? "\xe2\x9c\x93" :  // ✓
                     s_worker_status == 2 ? "!"               : "?";
-  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "Wkr%s HRM%s GPS%s",
+  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "W%s HRM%s GPS%s",
            wkr,
            hrm_ok    ? "\xe2\x9c\x93" : "--",
            s_gps_fix ? "\xe2\x9c\x93" : "--");
