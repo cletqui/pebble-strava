@@ -257,7 +257,9 @@ static void update_workout_display(void) {
   text_layer_set_text_color(s_wk_time,
     s_state == STATE_PAUSED ? GColorLightGray : GColorWhite);
 
-  // SELECT hint: ▶ always visible (hint for pause/resume); grays out when uploading
+  // SELECT hint: || when active (will pause), ▶ when paused (will resume)
+  text_layer_set_text(s_wk_sel_hint,
+    s_state == STATE_ACTIVE ? "||" : "\xe2\x96\xb6");
   text_layer_set_text_color(s_wk_sel_hint,
     s_state == STATE_UPLOADING ? GColorDarkGray : GColorLightGray);
 
