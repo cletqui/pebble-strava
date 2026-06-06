@@ -18,7 +18,7 @@
     "watchapp": {
       "watchface": false
     },
-    "capabilities": ["configurable"],
+    "capabilities": ["configurable", "health"],
     "messageKeys": [
       "CMD_ACTION",
       "CMD_SPORT",
