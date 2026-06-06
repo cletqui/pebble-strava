@@ -126,15 +126,19 @@ rm -rf ~/.local/share/pebble-sdk/4.9.169/emery/qemu_spi_flash.bin \
        ~/.local/share/pebble-sdk/4.9.169/emery/timeline.db
 ```
 
-## Known limitations
+## Roadmap
 
-### GPS on Android 10+
+### Next — Android companion app (GPS fix)
 
-`navigator.geolocation.watchPosition` in the official Pebble Android app does not deliver callbacks on Android 10 and later. The GPS request reaches Android (the location indicator appears), but the result is never returned to the JS runtime because the old Pebble APK does not declare `ACCESS_BACKGROUND_LOCATION`, which Android 10+ requires for location callbacks from background services.
+`navigator.geolocation.watchPosition` in the official Pebble Android app silently drops callbacks on Android 10+. The old APK does not declare `ACCESS_BACKGROUND_LOCATION`, which Android 10+ requires for location callbacks from background services. The GPS request reaches Android (location indicator appears) but the result is never returned to JS.
 
-**Workaround:** use [Gadgetbridge](https://gadgetbridge.org/) instead of the official Pebble app. Gadgetbridge is an actively maintained open-source replacement that supports modern Android location APIs. All other app functionality (worker status, HRM, upload) works with the official app.
+**Fix:** build a small PebbleKit Android companion app (`android/`) — a foreground service that gets GPS via modern Android location APIs and sends coordinates to the watch via PebbleKit intents. PKJS stays for config and GPX upload; the companion handles GPS only. Distributable as an APK via GitHub Releases, F-Droid-compatible (PebbleKit uses Android Intents, not Google Play Services).
 
-### Strava direct upload
+### Secondary — Gadgetbridge
+
+[Gadgetbridge](https://gadgetbridge.org/) is an open-source replacement for the Pebble Android app that supports modern Android location APIs. GPS would work with Gadgetbridge without any code changes. Useful fallback if the companion app approach is not desired.
+
+### Known limitation — Strava direct upload
 
 Strava's upload API (`activity:write`) requires a paid subscription. The email + manual import approach is the only free path.
 
