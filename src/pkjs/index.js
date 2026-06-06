@@ -80,11 +80,13 @@ function onPositionError(err) {
   // err.code: 1=PERMISSION_DENIED 2=POSITION_UNAVAILABLE 3=TIMEOUT
   console.log('GPS error ' + err.code + ': ' + err.message);
   if (err.code === 3) {
-    // Some runtimes stop watching after TIMEOUT — restart to keep trying
+    sendToWatch({ 'UPLOAD_MSG': 'GPS searching...' });
     stopGPS();
     startGPS();
+  } else if (err.code === 1) {
+    sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS: no permission' });
   } else {
-    sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS err ' + err.code });
+    sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS unavailable' });
   }
 }
 
