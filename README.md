@@ -58,7 +58,7 @@ Receive POST /upload { gpx, sport, name }
 
 ### 1. Deploy the Cloudflare Worker
 
-The Worker lives in `../pebble-strava-worker/`. See its README for deploy instructions.
+The Worker lives in `worker/`. See `worker/README.md` for deploy instructions.
 
 After deploying, note your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.workers.dev`).
 
@@ -76,6 +76,20 @@ var WORKER_SECRET = 'YOUR_SECRET_HERE';  // must match UPLOAD_SECRET in Worker
 ```sh
 pebble build
 pebble install --phone <phone-ip>   # or --emulator emery for testing
+```
+
+## Project layout
+
+```
+src/c/pebble-strava.c    Watch app: UI, HRM, state machine, AppMessage
+src/pkjs/index.js        Phone companion: GPS, GPX builder, Worker upload
+package.json             Pebble app metadata, UUID, message keys
+wscript                  Pebble build rules
+worker/
+  src/index.js           Cloudflare Worker: receive GPX, send email via Resend
+  wrangler.toml          Worker config and secrets reference
+  package.json           Worker dependencies
+  README.md              Worker deploy instructions
 ```
 
 ## Building & debugging

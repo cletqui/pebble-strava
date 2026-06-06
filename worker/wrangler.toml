@@ -1,0 +1,8 @@
+name             = "pebble-strava"
+main             = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Secrets — set via CLI, never committed:
+#   wrangler secret put RESEND_API_KEY
+#   wrangler secret put UPLOAD_SECRET
+#   wrangler secret put USER_EMAIL
