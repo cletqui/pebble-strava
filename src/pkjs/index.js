@@ -27,6 +27,13 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function storageGet(key) {
+  try { return Pebble.getLocalStorageItem(key) || ''; } catch(e) { return ''; }
+}
+function storageSet(key, val) {
+  try { Pebble.setLocalStorageItem(key, val); } catch(e) {}
+}
+
 function sendToWatch(data) {
   Pebble.sendAppMessage(data,
     function() {},
@@ -220,8 +227,8 @@ function uploadToWorker(gpxData, activityName) {
 
 Pebble.addEventListener('ready', function() {
   console.log('Pebble Strava companion ready');
-  WORKER_URL    = Pebble.getLocalStorageItem('workerUrl')    || '';
-  WORKER_SECRET = Pebble.getLocalStorageItem('workerSecret') || '';
+  WORKER_URL    = storageGet('workerUrl');
+  WORKER_SECRET = storageGet('workerSecret');
   if (!WORKER_URL) {
     // localStorage cleared on reinstall — ask the watch (persistent storage survives)
     sendToWatch({ 'CRED_REQUEST': 1 });
@@ -255,7 +262,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<input id="u" type="url" placeholder="https://pebble-strava.xxx.workers.dev">' +
 '<p class="hint">From wrangler deploy output.</p>' +
 '<label>Upload Secret</label>' +
-'<input id="s" type="text" placeholder="your_upload_secret">' +
+'<input id="s" type="password" placeholder="your_upload_secret" autocomplete="current-password">' +
 '<p class="hint">The UPLOAD_SECRET you set with wrangler secret put.</p>' +
 '<button onclick="save()">Save &amp; Close</button>' +
 '<script>' +
@@ -279,8 +286,8 @@ Pebble.addEventListener('webviewclosed', function(e) {
   if (!e.response || e.response === 'CANCELLED') return;
   try {
     var data = JSON.parse(decodeURIComponent(e.response));
-    if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    Pebble.setLocalStorageItem('workerUrl',    data.workerUrl); }
-    if (data.workerSecret) { WORKER_SECRET = data.workerSecret; Pebble.setLocalStorageItem('workerSecret', data.workerSecret); }
+    if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    storageSet('workerUrl',    data.workerUrl); }
+    if (data.workerSecret) { WORKER_SECRET = data.workerSecret; storageSet('workerSecret', data.workerSecret); }
     // Also push to watch persistent storage so credentials survive phone-side reinstalls
     if (WORKER_URL && WORKER_SECRET) {
       sendToWatch({ 'CRED_URL': WORKER_URL, 'CRED_SECRET': WORKER_SECRET });
@@ -297,12 +304,12 @@ Pebble.addEventListener('appmessage', function(e) {
 
   if (msg.CRED_URL) {
     WORKER_URL = msg.CRED_URL;
-    Pebble.setLocalStorageItem('workerUrl', msg.CRED_URL);
+    storageSet('workerUrl', msg.CRED_URL);
     console.log('Credentials restored from watch: ' + WORKER_URL);
   }
   if (msg.CRED_SECRET) {
     WORKER_SECRET = msg.CRED_SECRET;
-    Pebble.setLocalStorageItem('workerSecret', msg.CRED_SECRET);
+    storageSet('workerSecret', msg.CRED_SECRET);
   }
 
   if (msg.HR_BPM !== undefined && msg.HR_BPM > 0) {
