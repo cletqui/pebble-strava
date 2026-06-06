@@ -27,7 +27,7 @@ function serveConfig(url) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Strava Recorder — Setup</title>
+<title>Strava GPX Mailer — Setup</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,sans-serif;background:#111;color:#eee;padding:24px 20px;min-height:100vh}
@@ -42,7 +42,7 @@ function serveConfig(url) {
 </style>
 </head>
 <body>
-<h1>Strava Recorder</h1>
+<h1>Strava GPX Mailer</h1>
 <p class="sub">Pebble companion setup — settings are stored on your phone.</p>
 <label>Cloudflare Worker URL</label>
 <input id="url" type="url" placeholder="https://pebble-strava.xxx.workers.dev" value="${workerUrl}">
@@ -115,7 +115,7 @@ async function sendEmail(env, activityName, filename, gpx, sport) {
         'Import to Strava:',
         'https://www.strava.com/upload/select',
         '',
-        '— Pebble Strava Recorder',
+        '— Strava GPX Mailer',
       ].join('\n'),
       attachments: [{
         filename: filename,

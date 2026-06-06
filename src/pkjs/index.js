@@ -219,7 +219,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<html lang="en"><head>' +
 '<meta charset="utf-8">' +
 '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-'<title>Strava Recorder Setup</title>' +
+'<title>Strava GPX Mailer — Setup</title>' +
 '<style>' +
 '*{box-sizing:border-box;margin:0;padding:0}' +
 'body{font-family:-apple-system,sans-serif;background:#111;color:#eee;padding:24px 20px}' +
@@ -232,7 +232,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 'button{width:100%;padding:14px;background:#ff6600;border:none;border-radius:6px;color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}' +
 'button:active{background:#cc5200}' +
 '</style></head><body>' +
-'<h1>Strava Recorder</h1>' +
+'<h1>Strava GPX Mailer</h1>' +
 '<p class="sub">Enter your Cloudflare Worker details. Settings are stored on your phone only.</p>' +
 '<label>Worker URL</label>' +
 '<input id="u" type="url" placeholder="https://pebble-strava.xxx.workers.dev">' +
