@@ -2,8 +2,9 @@
 
 // Credentials are never compiled in — they live in phone localStorage,
 // set by the in-app config page (long-press app → Settings).
-var WORKER_URL    = '';
-var WORKER_SECRET = '';
+var _cfg          = (function() { try { return require('./config'); } catch(e) { return {}; } })();
+var WORKER_URL    = _cfg.WORKER_URL    || '';
+var WORKER_SECRET = _cfg.WORKER_SECRET || '';
 
 var workerOk      = false;
 
@@ -250,8 +251,8 @@ function uploadToWorker(gpxData, activityName) {
 
 Pebble.addEventListener('ready', function() {
   console.log('Pebble Strava companion ready');
-  WORKER_URL    = storageGet('workerUrl');
-  WORKER_SECRET = storageGet('workerSecret');
+  WORKER_URL    = storageGet('workerUrl')    || WORKER_URL;
+  WORKER_SECRET = storageGet('workerSecret') || WORKER_SECRET;
   if (!WORKER_URL) {
     sendToWatch({ 'CRED_REQUEST': 1 });  // ask watch, localStorage may have been cleared
   } else {
