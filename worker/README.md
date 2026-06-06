@@ -28,8 +28,8 @@ bunx wrangler secret put UPLOAD_SECRET    # any random string, e.g. openssl rand
 bunx wrangler secret put USER_EMAIL       # the email address to send GPX files to
 ```
 
-`UPLOAD_SECRET` is a shared secret between the Worker and the Pebble companion.
-Copy it into `WORKER_SECRET` in `../src/pkjs/config.js` (gitignored).
+`UPLOAD_SECRET` is a shared secret between the Worker and the Pebble companion app.
+You will enter it in the in-app settings page after installing the watch app.
 
 ### 4. Deploy
 
@@ -42,7 +42,7 @@ Wrangler will print your Worker URL:
 https://pebble-strava.YOUR_SUBDOMAIN.workers.dev
 ```
 
-Copy it into `WORKER_URL` in `../src/pkjs/config.js`.
+Note this URL — you will enter it in the in-app settings page after installing the watch app.
 
 ### 5. Verify
 
@@ -55,6 +55,11 @@ curl https://pebble-strava.YOUR_SUBDOMAIN.workers.dev/
 
 ### `GET /`
 Health check. Returns `{ ok: true }`.
+
+### `GET /config`
+Serves the in-app configuration page (opened by the Pebble companion when you
+tap the Settings gear). Accepts `?url=...&secret=...` query params to pre-fill
+current values.
 
 ### `POST /upload`
 
@@ -85,7 +90,7 @@ or
 ## Local development
 
 ```sh
-npm run dev
+bun run dev   # or: npm run dev
 ```
 
 Then test with:

@@ -16,7 +16,7 @@ A Pebble Time 2 app that records cycling and running workouts with GPS and heart
 Watch (C)                        Phone (PebbleKit JS)
 ─────────────────────────────────────────────────────
 Sport select + workout UI        GPS watchPosition (high accuracy)
-1Hz timer → elapsed time         Haversine distance accumulation
+Wall-clock elapsed tracking      Haversine distance accumulation
 HRM poll every 5s → send HR  →  HR samples stored with timestamps
                              ←  GPS distance + speed + fix status
 BACK×2 → CMD_STOP            →  Build GPX with correlated HR data
@@ -58,26 +58,27 @@ Receive POST /upload { gpx, sport, name }
 
 ### 1. Deploy the Cloudflare Worker
 
-The Worker lives in `worker/`. See `worker/README.md` for deploy instructions.
+The Worker lives in `worker/`. See [`worker/README.md`](worker/README.md) for full instructions.
 
-After deploying, note your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.workers.dev`).
+After deploying, note your **Worker URL** and the **Upload Secret** you set — you'll need both in step 3.
 
-### 2. Configure the companion
+### 2. Build and install the watch app
 
-Build and install the app (step 3), then on your phone:
-
-- Open the **Pebble** app → long-press **Strava Recorder** → tap the **gear icon**
-- Enter your Worker URL and Upload Secret
-- Tap **Save & Close**
-
-Credentials are stored in phone localStorage — nothing is compiled into the `.pbw`.
-
-### 3. Build and install
+Requires the [Pebble SDK](https://developer.rebble.io/developer.pebble.com/sdk/install/index.html).
 
 ```sh
 pebble build
-pebble install --phone <phone-ip>   # or --emulator emery for testing
+pebble install --phone <phone-ip>   # enable Developer Mode in the Pebble app to get the IP
 ```
+
+### 3. Configure credentials on your phone
+
+- Open the **Pebble** app → long-press **Strava Recorder** → tap the **⚙ gear icon**
+- Enter your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.workers.dev`)
+- Enter your Upload Secret (the `UPLOAD_SECRET` you set on the Worker)
+- Tap **Save & Close**
+
+Credentials are stored in phone localStorage — nothing is compiled into the `.pbw`, so you can share the binary freely.
 
 ## Project layout
 
