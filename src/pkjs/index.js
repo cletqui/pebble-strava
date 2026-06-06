@@ -70,16 +70,26 @@ function onPosition(pos) {
 }
 
 function onPositionError(err) {
-  console.log('GPS error: ' + err.message);
-  sendToWatch({ 'GPS_HAS_FIX': 0 });
+  // err.code: 1=PERMISSION_DENIED 2=POSITION_UNAVAILABLE 3=TIMEOUT
+  console.log('GPS error ' + err.code + ': ' + err.message);
+  if (err.code === 3) {
+    // Some runtimes stop watching after TIMEOUT — restart to keep trying
+    stopGPS();
+    startGPS();
+  } else {
+    sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS err ' + err.code });
+  }
 }
 
 function startGPS() {
-  if (!navigator.geolocation) return;
+  if (!navigator.geolocation) {
+    sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'No geoloc API' });
+    return;
+  }
   watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
     enableHighAccuracy: true,
-    maximumAge:         2000,
-    timeout:            15000
+    maximumAge:         5000,
+    timeout:            60000
   });
 }
 
