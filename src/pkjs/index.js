@@ -74,8 +74,12 @@ function onPosition(pos) {
   } else {
     // Not in workout: keep GPS status current on the select screen.
     gpsTick++;
-    if (gpsTick === 1 || gpsTick >= GPS_SEND_EVERY) {
-      if (gpsTick >= GPS_SEND_EVERY) gpsTick = 0;
+    if (gpsTick === 1) {
+      // First pre-workout fix: show coords briefly so we know GPS arrived
+      sendToWatch({ 'GPS_HAS_FIX': 1, 'UPLOAD_MSG': 'GPS ' + lat.toFixed(3) + ',' + lon.toFixed(3) });
+      console.log('GPS first fix: ' + lat.toFixed(4) + ',' + lon.toFixed(4));
+    } else if (gpsTick >= GPS_SEND_EVERY) {
+      gpsTick = 0;
       sendToWatch({ 'GPS_HAS_FIX': 1 });
       console.log('GPS fix: ' + lat.toFixed(4) + ',' + lon.toFixed(4));
     }
@@ -327,11 +331,24 @@ Pebble.addEventListener('webviewclosed', function(e) {
     var data = JSON.parse(decodeURIComponent(e.response));
     if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    storageSet('workerUrl',    data.workerUrl); }
     if (data.workerSecret) { WORKER_SECRET = data.workerSecret; storageSet('workerSecret', data.workerSecret); }
-    // Also push to watch persistent storage so credentials survive phone-side reinstalls
-    if (WORKER_URL && WORKER_SECRET) {
-      sendToWatch({ 'CRED_URL': WORKER_URL, 'CRED_SECRET': WORKER_SECRET });
+
+    // Push to watch persistent storage so credentials survive phone-side reinstalls.
+    // Send whatever we have — even URL alone is worth persisting.
+    if (WORKER_URL) {
+      var creds = { 'CRED_URL': WORKER_URL };
+      if (WORKER_SECRET) creds['CRED_SECRET'] = WORKER_SECRET;
+      sendToWatch(creds);
     }
-    console.log('Config saved: ' + WORKER_URL);
+
+    if (WORKER_URL && WORKER_SECRET) {
+      sendToWatch({ 'UPLOAD_MSG': 'Saved! Pinging...' });
+      pingWorker();  // update W status immediately without waiting for next restart
+    } else if (WORKER_URL) {
+      sendToWatch({ 'UPLOAD_MSG': 'URL saved — add secret' });
+    } else {
+      sendToWatch({ 'UPLOAD_MSG': 'No URL: open Settings' });
+    }
+    console.log('Config saved: url=' + WORKER_URL + ' secret=' + (WORKER_SECRET ? '***' : '(empty)'));
   } catch (err) {
     console.log('Config parse error: ' + err);
   }
