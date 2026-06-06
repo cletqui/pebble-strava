@@ -301,7 +301,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<script>' +
 'function save(){' +
 '  var d={workerUrl:document.getElementById("u").value.trim(),workerSecret:document.getElementById("s").value.trim()};' +
-'  location.href="pebblejs://close?data="+encodeURIComponent(JSON.stringify(d));' +
+'  location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(d));' +
 '}' +
 '</script></body></html>';
 
@@ -326,9 +326,15 @@ Pebble.addEventListener('showConfiguration', function() {
 });
 
 Pebble.addEventListener('webviewclosed', function(e) {
+  console.log('webviewclosed raw: ' + JSON.stringify(e.response));
   if (!e.response || e.response === 'CANCELLED') return;
   try {
-    var data = JSON.parse(decodeURIComponent(e.response));
+    // Standard format: pebblejs://close#ENCODED — response is the encoded JSON.
+    // Strip any prefix the Pebble app might include before the JSON.
+    var raw = e.response;
+    if (raw.charAt(0) === '#')        raw = raw.slice(1);
+    if (raw.indexOf('?data=') === 0)  raw = raw.slice(6);
+    var data = JSON.parse(decodeURIComponent(raw));
     if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    storageSet('workerUrl',    data.workerUrl); }
     if (data.workerSecret) { WORKER_SECRET = data.workerSecret; storageSet('workerSecret', data.workerSecret); }
 

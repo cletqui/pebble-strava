@@ -65,7 +65,7 @@ function save() {
     workerUrl:    document.getElementById('url').value.trim(),
     workerSecret: document.getElementById('secret').value.trim()
   };
-  location.href = 'pebblejs://close?data=' + encodeURIComponent(JSON.stringify(data));
+  location.href = 'pebblejs://close#' + encodeURIComponent(JSON.stringify(data));
 }
 </script>
 </body>
