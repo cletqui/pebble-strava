@@ -301,10 +301,19 @@ function htmlEscape(s) {
 }
 
 Pebble.addEventListener('showConfiguration', function() {
-  var html = CONFIG_HTML
-    .replace('__URL__',    htmlEscape(WORKER_URL))
-    .replace('__SECRET__', htmlEscape(WORKER_SECRET));
-  Pebble.openURL('data:text/html,' + encodeURIComponent(html));
+  if (WORKER_URL) {
+    // Use the worker-hosted config page — no data URI size/encoding issues,
+    // and values are always pre-filled via query params.
+    Pebble.openURL(WORKER_URL + '/config' +
+      '?url='    + encodeURIComponent(WORKER_URL) +
+      '&secret=' + encodeURIComponent(WORKER_SECRET));
+  } else {
+    // First-time setup: worker URL not yet known, fall back to embedded page.
+    var html = CONFIG_HTML
+      .replace('__URL__',    htmlEscape(WORKER_URL))
+      .replace('__SECRET__', htmlEscape(WORKER_SECRET));
+    Pebble.openURL('data:text/html,' + encodeURIComponent(html));
+  }
 });
 
 Pebble.addEventListener('webviewclosed', function(e) {
