@@ -248,10 +248,11 @@ static void update_workout_display(void) {
   if (s_hr_bpm > 0) snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "%d bpm", s_hr_bpm);
   else              snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "-- bpm");
 
-  // Status row: HRM/GPS icons normally; state messages override when needed
+  // Status row: HRM/GPS icons normally; state messages override when needed.
+  // STATE_DONE: leave s_wk_status_buf as-is (set by inbox handler with result).
   if (s_state == STATE_UPLOADING) {
     snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Sending GPX email...");
-  } else {
+  } else if (s_state != STATE_DONE) {
     snprintf(s_wk_status_buf, sizeof(s_wk_status_buf),
              "HRM %s  GPS %s",
              s_hr_bpm > 0 ? "\xe2\x9c\x93" : "--",   // ✓ U+2713
@@ -266,7 +267,10 @@ static void update_workout_display(void) {
   text_layer_set_text(s_wk_sel_hint,
     s_state == STATE_ACTIVE ? "||" : "\xe2\x96\xb6");
   text_layer_set_text_color(s_wk_sel_hint,
-    s_state == STATE_UPLOADING ? GColorDarkGray : GColorLightGray);
+    (s_state == STATE_UPLOADING || s_state == STATE_DONE) ? GColorDarkGray : GColorLightGray);
+  // Status text: white for done/error result, gray otherwise
+  text_layer_set_text_color(s_wk_status,
+    s_state == STATE_DONE ? GColorWhite : GColorLightGray);
 
   text_layer_set_text(s_wk_time,     s_wk_time_buf);
   text_layer_set_text(s_wk_dist,     s_wk_dist_buf);
@@ -338,8 +342,8 @@ static void action_resume(void) {
 }
 
 static void action_stop(void) {
-  if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
-  s_up_armed = false;
+  if (s_back_timer) { app_timer_cancel(s_back_timer); s_back_timer = NULL; }
+  s_back_armed = false;
   s_elapsed_offset = get_elapsed();
   APP_LOG(APP_LOG_LEVEL_INFO, "Stopped: elapsed=%lus dist=%lum", (unsigned long)s_elapsed_offset, (unsigned long)s_distance_m);
   s_state = STATE_UPLOADING;
@@ -393,12 +397,12 @@ static void prv_wk_up(ClickRecognizerRef r, void *ctx) {
   if (s_up_armed) {
     if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
     s_up_armed = false;
-    action_cancel();
+    action_stop();
   } else {
     if (s_back_timer) { app_timer_cancel(s_back_timer); s_back_timer = NULL; }
     s_back_armed = false;
     s_up_armed = true;
-    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press UP again to cancel");
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press UP again to stop");
     text_layer_set_text(s_wk_status, s_wk_status_buf);
     s_up_timer = app_timer_register(3000, prv_up_timer_cb, NULL);
   }
@@ -414,12 +418,12 @@ static void prv_wk_back(ClickRecognizerRef r, void *ctx) {
   if (s_back_armed) {
     if (s_back_timer) { app_timer_cancel(s_back_timer); s_back_timer = NULL; }
     s_back_armed = false;
-    action_stop();
+    action_cancel();
   } else {
     if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
     s_up_armed = false;
     s_back_armed = true;
-    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press BACK again to stop");
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press BACK again to cancel");
     text_layer_set_text(s_wk_status, s_wk_status_buf);
     s_back_timer = app_timer_register(3000, prv_back_timer_cb, NULL);
   }
@@ -592,9 +596,9 @@ static void prv_workout_load(Window *win) {
   text_layer_set_text_color(s_wk_status, GColorLightGray);
   layer_add_child(root, text_layer_get_layer(s_wk_status));
 
-  // UP hint (▲) — top-right, aligned with UP button (~y=42), double-press to cancel
+  // UP hint (■ stop) — top-right, aligned with UP button (~y=42), double-press to stop+upload
   s_wk_up_hint = text_layer_create(GRect(w - 20, 42, 20, 24));
-  text_layer_set_text(s_wk_up_hint, "\xe2\x96\xb2");  // ▲ U+25B2
+  text_layer_set_text(s_wk_up_hint, "\xe2\x96\xa0");  // ■ U+25A0
   text_layer_set_text_alignment(s_wk_up_hint, GTextAlignmentCenter);
   text_layer_set_font(s_wk_up_hint, s_icon_font_14);
   text_layer_set_background_color(s_wk_up_hint, GColorClear);
@@ -610,9 +614,9 @@ static void prv_workout_load(Window *win) {
   text_layer_set_text_color(s_wk_sel_hint, GColorLightGray);
   layer_add_child(root, text_layer_get_layer(s_wk_sel_hint));
 
-  // BACK hint (<) — left edge, aligned with BACK button (~y=101), double-press to stop
-  s_wk_back_hint = text_layer_create(GRect(0, 101, 20, 24));
-  text_layer_set_text(s_wk_back_hint, "<");
+  // BACK hint (◀ cancel) — left edge, aligned with BACK button (~y=42), double-press to cancel
+  s_wk_back_hint = text_layer_create(GRect(0, 42, 20, 24));
+  text_layer_set_text(s_wk_back_hint, "\xe2\x97\x80");  // ◀ U+25C0
   text_layer_set_text_alignment(s_wk_back_hint, GTextAlignmentCenter);
   text_layer_set_font(s_wk_back_hint, s_icon_font_14);
   text_layer_set_background_color(s_wk_back_hint, GColorClear);
