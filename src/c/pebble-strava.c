@@ -41,7 +41,9 @@ static int16_t  s_hr_bpm     = 0;
 static bool     s_gps_fix    = false;
 
 static bool      s_back_armed = false;
-static AppTimer *s_back_timer   = NULL;
+static AppTimer *s_back_timer    = NULL;
+static bool      s_up_armed   = false;
+static AppTimer *s_up_timer      = NULL;
 static AppTimer *s_workout_timer = NULL;
 
 // === Windows & layers ===
@@ -61,7 +63,9 @@ static TextLayer *s_wk_dist;
 static TextLayer *s_wk_speed;
 static TextLayer *s_wk_bpm;
 static TextLayer *s_wk_status;
+static TextLayer *s_wk_up_hint;
 static TextLayer *s_wk_sel_hint;
+static TextLayer *s_wk_back_hint;
 
 // Persistent display buffers (TextLayer holds pointer, not a copy)
 static char s_sel_sport_buf[16];
@@ -115,10 +119,11 @@ static uint32_t get_elapsed(void) {
   return s_elapsed_offset;
 }
 
-// Forward declarations: called from prv_inbox_received before their definitions
+// Forward declarations
 static void update_workout_display(void);
 static void prv_update_gps_label(void);
 static void prv_send_creds(void);
+static void action_cancel(void);
 
 // === AppMessage ===
 
@@ -333,7 +338,9 @@ static void action_resume(void) {
 }
 
 static void action_stop(void) {
-  s_elapsed_offset = get_elapsed();  // freeze before state changes
+  if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
+  s_up_armed = false;
+  s_elapsed_offset = get_elapsed();
   APP_LOG(APP_LOG_LEVEL_INFO, "Stopped: elapsed=%lus dist=%lum", (unsigned long)s_elapsed_offset, (unsigned long)s_distance_m);
   s_state = STATE_UPLOADING;
   stop_timer();
@@ -342,15 +349,34 @@ static void action_stop(void) {
   vibes_long_pulse();
 }
 
-// === Double-BACK timer ===
+// === Double-press timers ===
 
 static void prv_back_timer_cb(void *ctx) {
   s_back_armed = false;
   s_back_timer = NULL;
-  // Restore normal status row after "BACK again to stop" message
-  if (s_state == STATE_ACTIVE || s_state == STATE_PAUSED) {
-    update_workout_display();
-  }
+  if (s_state == STATE_ACTIVE || s_state == STATE_PAUSED) update_workout_display();
+}
+
+static void prv_up_timer_cb(void *ctx) {
+  s_up_armed = false;
+  s_up_timer = NULL;
+  if (s_state == STATE_ACTIVE || s_state == STATE_PAUSED) update_workout_display();
+}
+
+static void action_cancel(void) {
+  if (s_back_timer) { app_timer_cancel(s_back_timer); s_back_timer = NULL; }
+  s_back_armed = false;
+  stop_timer();
+  s_state          = STATE_SELECT;
+  s_elapsed_offset = 0;
+  s_distance_m     = 0;
+  s_speed_cms      = 0;
+  s_hr_bpm         = 0;
+  s_gps_fix        = false;
+  prv_send_cmd(CMD_PAUSE);  // tell JS to stop tracking without triggering upload
+  APP_LOG(APP_LOG_LEVEL_INFO, "Workout cancelled");
+  vibes_short_pulse();
+  window_stack_pop(true);
 }
 
 // === Click handlers — Workout window ===
@@ -362,7 +388,20 @@ static void prv_wk_select(ClickRecognizerRef r, void *ctx) {
 }
 
 static void prv_wk_up(ClickRecognizerRef r, void *ctx) {
-  if (s_state == STATE_ACTIVE) vibes_short_pulse();  // lap marker feedback
+  if (s_state == STATE_UPLOADING || s_state == STATE_DONE) return;
+
+  if (s_up_armed) {
+    if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
+    s_up_armed = false;
+    action_cancel();
+  } else {
+    if (s_back_timer) { app_timer_cancel(s_back_timer); s_back_timer = NULL; }
+    s_back_armed = false;
+    s_up_armed = true;
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press UP again to cancel");
+    text_layer_set_text(s_wk_status, s_wk_status_buf);
+    s_up_timer = app_timer_register(3000, prv_up_timer_cb, NULL);
+  }
 }
 
 static void prv_wk_back(ClickRecognizerRef r, void *ctx) {
@@ -377,6 +416,8 @@ static void prv_wk_back(ClickRecognizerRef r, void *ctx) {
     s_back_armed = false;
     action_stop();
   } else {
+    if (s_up_timer) { app_timer_cancel(s_up_timer); s_up_timer = NULL; }
+    s_up_armed = false;
     s_back_armed = true;
     snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press BACK again to stop");
     text_layer_set_text(s_wk_status, s_wk_status_buf);
@@ -551,7 +592,16 @@ static void prv_workout_load(Window *win) {
   text_layer_set_text_color(s_wk_status, GColorLightGray);
   layer_add_child(root, text_layer_get_layer(s_wk_status));
 
-  // SELECT button hint (▶) — right edge, aligned with physical button (~y=101)
+  // UP hint (▲) — top-right, aligned with UP button (~y=42), double-press to cancel
+  s_wk_up_hint = text_layer_create(GRect(w - 20, 42, 20, 24));
+  text_layer_set_text(s_wk_up_hint, "\xe2\x96\xb2");  // ▲ U+25B2
+  text_layer_set_text_alignment(s_wk_up_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_wk_up_hint, s_icon_font_14);
+  text_layer_set_background_color(s_wk_up_hint, GColorClear);
+  text_layer_set_text_color(s_wk_up_hint, GColorDarkGray);
+  layer_add_child(root, text_layer_get_layer(s_wk_up_hint));
+
+  // SELECT hint (▶/||) — right edge, aligned with SELECT button (~y=101)
   s_wk_sel_hint = text_layer_create(GRect(w - 20, 101, 20, 24));
   text_layer_set_text(s_wk_sel_hint, "\xe2\x96\xb6");  // ▶ U+25B6
   text_layer_set_text_alignment(s_wk_sel_hint, GTextAlignmentCenter);
@@ -559,6 +609,15 @@ static void prv_workout_load(Window *win) {
   text_layer_set_background_color(s_wk_sel_hint, GColorClear);
   text_layer_set_text_color(s_wk_sel_hint, GColorLightGray);
   layer_add_child(root, text_layer_get_layer(s_wk_sel_hint));
+
+  // BACK hint (<) — left edge, aligned with BACK button (~y=101), double-press to stop
+  s_wk_back_hint = text_layer_create(GRect(0, 101, 20, 24));
+  text_layer_set_text(s_wk_back_hint, "<");
+  text_layer_set_text_alignment(s_wk_back_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_wk_back_hint, s_icon_font_14);
+  text_layer_set_background_color(s_wk_back_hint, GColorClear);
+  text_layer_set_text_color(s_wk_back_hint, GColorDarkGray);
+  layer_add_child(root, text_layer_get_layer(s_wk_back_hint));
 
   update_workout_display();
 }
@@ -569,7 +628,9 @@ static void prv_workout_unload(Window *win) {
   text_layer_destroy(s_wk_speed);
   text_layer_destroy(s_wk_bpm);
   text_layer_destroy(s_wk_status);
+  text_layer_destroy(s_wk_up_hint);
   text_layer_destroy(s_wk_sel_hint);
+  text_layer_destroy(s_wk_back_hint);
 }
 
 // === Init / Deinit ===
