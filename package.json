@@ -6,9 +6,9 @@
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Strava Recorder",
-    "shortName": "Strava",
-    "longName": "Strava Workout Recorder",
+    "displayName": "Strava GPX Mailer",
+    "shortName": "GPX Mail",
+    "longName": "Strava GPX Mailer",
     "uuid": "2d64ac7d-a175-4bb0-ba11-8c1997cff52d",
     "sdkVersion": "3",
     "enableMultiJS": true,

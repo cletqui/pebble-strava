@@ -1,4 +1,4 @@
-# worker
+# Strava GPX Mailer — Worker
 
 Cloudflare Worker that receives a GPX workout from the Pebble companion app and
 emails it to you via Resend, so you can import it into Strava.

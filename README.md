@@ -1,4 +1,4 @@
-# pebble-strava
+# Strava GPX Mailer
 
 A Pebble Time 2 app that records cycling and running workouts with GPS and heart rate, then emails you the GPX file so you can import it into Strava.
 
@@ -73,7 +73,7 @@ pebble install --phone <phone-ip>   # enable Developer Mode in the Pebble app to
 
 ### 3. Configure credentials on your phone
 
-- Open the **Pebble** app → long-press **Strava Recorder** → tap the **⚙ gear icon**
+- Open the **Pebble** app → long-press **Strava GPX Mailer** → tap the **⚙ gear icon**
 - Enter your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.workers.dev`)
 - Enter your Upload Secret (the `UPLOAD_SECRET` you set on the Worker)
 - Tap **Save & Close**
