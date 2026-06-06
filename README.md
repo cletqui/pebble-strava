@@ -44,7 +44,7 @@ Receive POST /upload { gpx, sport, name }
 
 ## Watch UI
 
-**Sport select** — UP: Running, DOWN: Cycling, SELECT: start
+**Sport select** — UP: Running, DOWN: Cycling, SELECT: start. HRM ✓ / GPS ✓ status shown at the bottom so sensors can be checked before starting.
 
 **Workout screen**
 - Large (white/gray): elapsed time — dims to gray when paused
@@ -83,15 +83,17 @@ Credentials are stored in phone localStorage — nothing is compiled into the `.
 ## Project layout
 
 ```
-src/c/pebble-strava.c    Watch app: UI, HRM, state machine, AppMessage
-src/pkjs/index.js        Phone companion: GPS, GPX builder, Worker upload
-package.json             Pebble app metadata, UUID, message keys
-wscript                  Pebble build rules
+src/c/pebble-strava.c      Watch app: UI, HRM, state machine, AppMessage
+src/pkjs/index.js          Phone companion: GPS, GPX builder, Worker upload
+src/pkjs/config.example.js Template for local credential override (gitignored config.js)
+resources/icons.ttf        Custom font subset: ▲ ▶ ▼ ✓ + ASCII (DejaVu Sans)
+package.json               Pebble app metadata, UUID, message keys
+wscript                    Pebble build rules
 worker/
-  src/index.js           Cloudflare Worker: receive GPX, send email via Resend
-  wrangler.toml          Worker config and secrets reference
-  package.json           Worker dependencies
-  README.md              Worker deploy instructions
+  src/index.js             Cloudflare Worker: receive GPX, send email via Resend
+  wrangler.toml            Worker config and secrets reference
+  package.json             Worker dependencies
+  README.md                Worker deploy instructions
 ```
 
 ## Building & debugging
