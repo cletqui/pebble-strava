@@ -223,8 +223,7 @@ Pebble.addEventListener('ready', function() {
   WORKER_URL    = Pebble.getLocalStorageItem('workerUrl')    || '';
   WORKER_SECRET = Pebble.getLocalStorageItem('workerSecret') || '';
   if (!WORKER_URL) console.log('Not configured — open Settings to set Worker URL');
-  // Pre-warm GPS so a fix is ready by the time the user presses start.
-  // onPosition only records trackpoints when isActive===true, so this is safe.
+  sendToWatch({ 'UPLOAD_MSG': 'JS ready, GPS init...' });
   startGPS();
 });
 

@@ -166,6 +166,14 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     if (s_workout_win == window_stack_get_top_window()) {
       update_workout_display();
     }
+  } else {
+    // Standalone UPLOAD_MSG (no UPLOAD_STATUS): JS diagnostic shown on select screen
+    Tuple *msg = dict_find(iter, MESSAGE_KEY_UPLOAD_MSG);
+    if (msg && s_sel_gps && window_stack_get_top_window() == s_select_win) {
+      snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "%.22s", msg->value->cstring);
+      text_layer_set_text(s_sel_gps, s_sel_gps_buf);
+      text_layer_set_text_color(s_sel_gps, GColorLightGray);
+    }
   }
 }
 
