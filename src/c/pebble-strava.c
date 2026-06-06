@@ -7,6 +7,9 @@
 #define CMD_PAUSE   2
 #define CMD_RESUME  3
 
+#define PERSIST_KEY_URL    1
+#define PERSIST_KEY_SECRET 2
+
 #define SPORT_RUNNING 0
 #define SPORT_CYCLING 1
 
@@ -112,9 +115,10 @@ static uint32_t get_elapsed(void) {
   return s_elapsed_offset;
 }
 
-// Forward declarations: both called from prv_inbox_received before their definitions
+// Forward declarations: called from prv_inbox_received before their definitions
 static void update_workout_display(void);
 static void prv_update_gps_label(void);
+static void prv_send_creds(void);
 
 // === AppMessage ===
 
@@ -147,6 +151,15 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     else if (top == s_select_win && s_sel_gps) prv_update_gps_label();
   }
 
+  // Credential storage: JS sends creds after config save; watch persists them.
+  // On fresh install, JS sends CRED_REQUEST and watch sends them back.
+  t = dict_find(iter, MESSAGE_KEY_CRED_URL);
+  if (t) persist_write_string(PERSIST_KEY_URL, t->value->cstring);
+  t = dict_find(iter, MESSAGE_KEY_CRED_SECRET);
+  if (t) persist_write_string(PERSIST_KEY_SECRET, t->value->cstring);
+  t = dict_find(iter, MESSAGE_KEY_CRED_REQUEST);
+  if (t) prv_send_creds();
+
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
   if (t) {
     int status = (int)t->value->int8;
@@ -175,6 +188,19 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
       text_layer_set_text_color(s_sel_gps, GColorLightGray);
     }
   }
+}
+
+static void prv_send_creds(void) {
+  char url[128]    = {0};
+  char secret[64]  = {0};
+  if (!persist_read_string(PERSIST_KEY_URL,    url,    sizeof(url))    ||
+      !persist_read_string(PERSIST_KEY_SECRET, secret, sizeof(secret)) ||
+      url[0] == '\0') return;
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  dict_write_cstring(iter, MESSAGE_KEY_CRED_URL,    url);
+  dict_write_cstring(iter, MESSAGE_KEY_CRED_SECRET, secret);
+  app_message_outbox_send();
 }
 
 static void prv_send_cmd(int action) {
@@ -565,7 +591,7 @@ static void prv_init(void) {
     .unload = prv_workout_unload,
   });
 
-  app_message_open(512, 256);
+  app_message_open(512, 512);
   app_message_register_inbox_received(prv_inbox_received);
 
   window_stack_push(s_select_win, false);

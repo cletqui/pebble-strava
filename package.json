@@ -27,7 +27,10 @@
       "GPS_SPEED",
       "GPS_HAS_FIX",
       "UPLOAD_STATUS",
-      "UPLOAD_MSG"
+      "UPLOAD_MSG",
+      "CRED_REQUEST",
+      "CRED_URL",
+      "CRED_SECRET"
     ],
     "resources": {
       "media": [

@@ -222,7 +222,10 @@ Pebble.addEventListener('ready', function() {
   console.log('Pebble Strava companion ready');
   WORKER_URL    = Pebble.getLocalStorageItem('workerUrl')    || '';
   WORKER_SECRET = Pebble.getLocalStorageItem('workerSecret') || '';
-  if (!WORKER_URL) console.log('Not configured — open Settings to set Worker URL');
+  if (!WORKER_URL) {
+    // localStorage cleared on reinstall — ask the watch (persistent storage survives)
+    sendToWatch({ 'CRED_REQUEST': 1 });
+  }
   sendToWatch({ 'UPLOAD_MSG': 'JS ready, GPS init...' });
   startGPS();
 });
@@ -278,6 +281,10 @@ Pebble.addEventListener('webviewclosed', function(e) {
     var data = JSON.parse(decodeURIComponent(e.response));
     if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    Pebble.setLocalStorageItem('workerUrl',    data.workerUrl); }
     if (data.workerSecret) { WORKER_SECRET = data.workerSecret; Pebble.setLocalStorageItem('workerSecret', data.workerSecret); }
+    // Also push to watch persistent storage so credentials survive phone-side reinstalls
+    if (WORKER_URL && WORKER_SECRET) {
+      sendToWatch({ 'CRED_URL': WORKER_URL, 'CRED_SECRET': WORKER_SECRET });
+    }
     console.log('Config saved: ' + WORKER_URL);
   } catch (err) {
     console.log('Config parse error: ' + err);
@@ -287,6 +294,16 @@ Pebble.addEventListener('webviewclosed', function(e) {
 Pebble.addEventListener('appmessage', function(e) {
   var msg = e.payload;
   console.log('From watch: ' + JSON.stringify(msg));
+
+  if (msg.CRED_URL) {
+    WORKER_URL = msg.CRED_URL;
+    Pebble.setLocalStorageItem('workerUrl', msg.CRED_URL);
+    console.log('Credentials restored from watch: ' + WORKER_URL);
+  }
+  if (msg.CRED_SECRET) {
+    WORKER_SECRET = msg.CRED_SECRET;
+    Pebble.setLocalStorageItem('workerSecret', msg.CRED_SECRET);
+  }
 
   if (msg.HR_BPM !== undefined && msg.HR_BPM > 0) {
     hrSamples.push({ hr: msg.HR_BPM, ts: Date.now() });
