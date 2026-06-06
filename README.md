@@ -1,6 +1,6 @@
 # Strava GPX Mailer
 
-A Pebble Time 2 app that records cycling and running workouts with GPS and heart rate, then emails you the GPX file so you can import it into Strava.
+A Pebble Time 2 watchapp that records running and cycling workouts with GPS and heart rate, then emails you the GPX file for import into Strava.
 
 ## How it works
 
@@ -8,7 +8,7 @@ A Pebble Time 2 app that records cycling and running workouts with GPS and heart
 2. Workout records elapsed time, GPS distance + speed (from phone), heart rate (from Pebble HRM)
 3. On stop, a GPX file with embedded HR data is POSTed to a Cloudflare Worker
 4. The Worker emails the GPX to you via Resend
-5. You open the email and import the `.gpx` into Strava — takes ~10 seconds
+5. Open the email, import the `.gpx` into Strava — ~10 seconds
 
 ## Architecture
 
@@ -25,9 +25,25 @@ BACK×2 → CMD_STOP            →  Build GPX with correlated HR data
 
 Cloudflare Worker
 ─────────────────
-Receive POST /upload { gpx, sport, name }
-└── Send email via Resend with .gpx attachment
+GET  /ping              Bearer auth check (watch status indicator)
+GET  /config            Settings page (pre-filled from query params)
+POST /upload            Receive GPX → send email via Resend
 ```
+
+## Watch UI
+
+**Sport select screen** — UP: Running, DOWN: Cycling, SELECT: start.  
+Status line at the bottom shows `W✓/!/? HRM✓/-- GPS✓/--` before starting.
+
+**Workout screen**
+- Large (white/gray): elapsed time — dims to gray when paused
+- Medium (white): distance in km
+- Medium (orange): speed km/h (cycling) or pace min/km (running)
+- Medium (white): heart rate in bpm
+- Small (gray): HRM ✓ / GPS ✓ status row
+- SELECT: pause / resume — UP: lap vibration — BACK × 2 within 3s: stop
+
+After stopping, upload status and any error are shown on the workout screen.
 
 ## AppMessage keys
 
@@ -40,45 +56,41 @@ Receive POST /upload { gpx, sport, name }
 | `GPS_SPEED` | phone→watch | int32 | Current speed in cm/s |
 | `GPS_HAS_FIX` | phone→watch | int8 | 1 if GPS fix acquired |
 | `UPLOAD_STATUS` | phone→watch | int8 | 0=uploading, 1=success, 2=error |
-| `UPLOAD_MSG` | phone→watch | cstring | Error message on failure |
-
-## Watch UI
-
-**Sport select** — UP: Running, DOWN: Cycling, SELECT: start. HRM ✓ / GPS ✓ status shown at the bottom so sensors can be checked before starting.
-
-**Workout screen**
-- Large (white/gray): elapsed time — dims to gray when paused
-- Medium (white): distance
-- Medium (orange): speed km/h (cycling) or pace min/km (running)
-- Medium (white): heart rate in bpm
-- Small (gray): HRM ✓ / GPS ✓ status row
-- SELECT: pause / resume — UP: lap vibration — BACK × 2 within 3s: stop
+| `UPLOAD_MSG` | phone→watch | cstring | Status / error message |
+| `CRED_REQUEST` | watch→phone | int8 | Watch requests credentials from phone |
+| `CRED_URL` | phone→watch | cstring | Worker URL (persisted to watch flash) |
+| `CRED_SECRET` | phone→watch | cstring | Upload secret (persisted to watch flash) |
+| `WORKER_STATUS` | phone→watch | int8 | 1=reachable, 2=error |
 
 ## Setup
 
 ### 1. Deploy the Cloudflare Worker
 
-The Worker lives in `worker/`. See [`worker/README.md`](worker/README.md) for full instructions.
+```sh
+cd worker
+bun install
+bunx wrangler secret put RESEND_API_KEY   # from resend.com → API Keys
+bunx wrangler secret put UPLOAD_SECRET    # any random string: openssl rand -hex 16
+bunx wrangler secret put USER_EMAIL       # your email address
+bun run deploy
+```
 
-After deploying, note your **Worker URL** and the **Upload Secret** you set — you'll need both in step 3.
+Note the Worker URL from wrangler output.
 
-### 2. Build and install the watch app
+### 2. Build and install
 
 Requires the [Pebble SDK](https://developer.rebble.io/developer.pebble.com/sdk/install/index.html).
 
 ```sh
 pebble build
-pebble install --phone <phone-ip>   # enable Developer Mode in the Pebble app to get the IP
+pebble install --phone <phone-ip>   # enable Developer Mode in the Pebble app
 ```
 
-### 3. Configure credentials on your phone
+### 3. Configure credentials
 
-- Open the **Pebble** app → long-press **Strava GPX Mailer** → tap the **⚙ gear icon**
-- Enter your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.workers.dev`)
-- Enter your Upload Secret (the `UPLOAD_SECRET` you set on the Worker)
-- Tap **Save & Close**
+Long-press **Strava GPX Mailer** in the Pebble app → tap the ⚙ gear icon → enter your Worker URL and Upload Secret → **Save & Close**.
 
-Credentials are stored in phone localStorage — nothing is compiled into the `.pbw`, so you can share the binary freely.
+Credentials are stored in watch persistent flash memory and survive reinstalls. The settings page is hosted by the Worker itself (pre-filled on reopen).
 
 ## Project layout
 
@@ -86,14 +98,10 @@ Credentials are stored in phone localStorage — nothing is compiled into the `.
 src/c/pebble-strava.c      Watch app: UI, HRM, state machine, AppMessage
 src/pkjs/index.js          Phone companion: GPS, GPX builder, Worker upload
 src/pkjs/config.example.js Template for local credential override (gitignored config.js)
-resources/icons.ttf        Custom font subset: ▲ ▶ ▼ ✓ + ASCII (DejaVu Sans)
-package.json               Pebble app metadata, UUID, message keys
-wscript                    Pebble build rules
-worker/
-  src/index.js             Cloudflare Worker: receive GPX, send email via Resend
-  wrangler.toml            Worker config and secrets reference
-  package.json             Worker dependencies
-  README.md                Worker deploy instructions
+resources/icons.ttf        Font subset: ▲ ▶ ▼ ✓ + ASCII (DejaVu Sans)
+package.json               App metadata, UUID, capabilities, message keys
+worker/src/index.js        Cloudflare Worker: /ping, /config, /upload → Resend email
+worker/wrangler.toml       Worker config
 ```
 
 ## Building & debugging
@@ -101,57 +109,45 @@ worker/
 ```sh
 pebble build
 pebble install --emulator emery
-pebble logs --emulator emery        # watch APP_LOG output
-pebble logs --phone <ip>            # on real watch
+pebble logs --emulator emery        # APP_LOG output
+pebble logs --phone <ip>            # real watch
 ```
 
-Key log entries: workout start/pause/resume/stop with elapsed time and distance,
-upload success/error.
+### Emulator clean (if install fails)
 
-## Why this approach — alternatives considered
+```sh
+kill -9 $(cat /tmp/pb-emulator.json 2>/dev/null | python3 -c \
+  "import sys,json; d=json.load(sys.stdin); [print(p['qemu']['pid'], p['pypkjs']['pid']) \
+  for p in d.values() if isinstance(p, dict) and '4.9.169' in p]" 2>/dev/null) 2>/dev/null
+pkill -9 -f qemu-pebble; pkill -9 -f pypkjs
+rm -f /tmp/pb-emulator.json
+rm -rf ~/.local/share/pebble-sdk/4.9.169/emery/qemu_spi_flash.bin \
+       ~/.local/share/pebble-sdk/4.9.169/emery/app_cache \
+       ~/.local/share/pebble-sdk/4.9.169/emery/timeline.db
+```
 
-During design, several upload targets were evaluated. Notes kept here so future
-decisions are informed.
+## Known limitations
 
-### Strava API (direct upload)
-**Rejected.** Strava now requires a paid subscription to access the upload API
-(`activity:write` scope). Free accounts can only import manually via the web.
+### GPS on Android 10+
 
-### Garmin Connect as hub (unofficial API)
-**Rejected as too fragile.** The appeal: uploading to Garmin Connect would
-auto-sync to Strava, Komoot, and GeoVelo (exactly how it worked with a Garmin
-device). However, Garmin has no official public upload API. The unofficial
-reverse-engineered flow requires:
-- A 5-step auth chain: mobile SSO → service ticket → OAuth1 signed exchange →
-  OAuth2 DI token → token refresh
-- RFC 5849 OAuth1 HMAC-SHA1 signing (non-trivial in JS)
-- Anti-bot delays of 10–20s between requests (problematic for CF Workers)
-- Cloudflare bot detection that may block datacenter requests
-- Consumer key fetched from a public S3 bucket (can change without notice)
+`navigator.geolocation.watchPosition` in the official Pebble Android app does not deliver callbacks on Android 10 and later. The GPS request reaches Android (the location indicator appears), but the result is never returned to the JS runtime because the old Pebble APK does not declare `ACCESS_BACKGROUND_LOCATION`, which Android 10+ requires for location callbacks from background services.
 
-This is 300+ lines of fragile code that could silently break at any Garmin
-update. Rejected in favour of the simpler email approach.
+**Workaround:** use [Gadgetbridge](https://gadgetbridge.org/) instead of the official Pebble app. Gadgetbridge is an actively maintained open-source replacement that supports modern Android location APIs. All other app functionality (worker status, HRM, upload) works with the official app.
+
+### Strava direct upload
+
+Strava's upload API (`activity:write`) requires a paid subscription. The email + manual import approach is the only free path.
+
+## Why email — alternatives considered
+
+### Garmin Connect (unofficial API)
+Attractive because Garmin auto-syncs to Strava, Komoot, and GeoVelo. Rejected: no official API, the reverse-engineered flow requires a 5-step OAuth1/OAuth2 chain, 10–20s anti-bot delays, and a consumer key fetched from a public S3 bucket that can change without notice. ~300 lines of fragile code.
 
 ### Runalyze
-**Viable alternative if Strava stops mattering.** Runalyze is the only platform
-with a free, documented public GPX upload API (Personal API, token-based, single
-POST). Good cycling and running analysis. If you ever want to move off Strava,
-switching the Worker to POST to Runalyze instead of sending an email is a
-30-minute job.
+Viable alternative. Free documented public GPX upload API (Personal API, token-based, single POST). Switching the Worker from email to Runalyze POST is a ~30-minute job. Good option if Strava stops mattering or for self-hosted deployments.
 
 ### Komoot / GeoVelo
-Neither has a public activity upload API. Garmin pushes to them via dedicated
-integrations, not via Strava. Without Garmin, there is no automated path to
-either platform. Both are primarily pre-ride route planning tools anyway; they
-don't need to receive every workout.
+No public activity upload API. Only reachable via Garmin integrations.
 
-### Self-hosted Runalyze
-Open-source, full data ownership, identical API. Good option if you have a VPS
-or home server. The Worker upload code would point at your own instance instead
-of runalyze.com.
-
-### Email + manual Strava import (chosen)
-The simplest reliable path. The Worker is ~60 lines, the companion change is
-minimal, no OAuth, no fragile reverse-engineering. One manual step per workout
-(import GPX to Strava, ~10 seconds). If the Worker ever goes down, the GPX is
-still in your email archive — no data loss.
+### Email + manual import (chosen)
+Worker is ~60 lines, no OAuth, no fragile reverse-engineering. One manual step per workout (~10 seconds to import). GPX stays in your email archive as a backup.

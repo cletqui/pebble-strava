@@ -90,8 +90,7 @@ function onPositionError(err) {
   // err.code: 1=PERMISSION_DENIED 2=POSITION_UNAVAILABLE 3=TIMEOUT
   console.log('GPS error ' + err.code + ': ' + err.message);
   if (err.code === 3) {
-    // Timeout is expected indoors — setInterval will retry automatically
-    console.log('GPS timeout, will retry in ' + GPS_POLL_MS + 'ms');
+    // Timeout — watchPosition retries automatically
   } else if (err.code === 1) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS: no permission' });
   } else {
@@ -119,42 +118,21 @@ function pingWorker() {
   xhr.send();
 }
 
-var GPS_POLL_MS = 5000;  // poll interval for getCurrentPosition loop
-
-var gpsPollCount = 0;
-
 function startGPS() {
   if (!navigator.geolocation) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'No geoloc API' });
     return;
   }
-  function poll() {
-    gpsPollCount++;
-    // Show poll count on watch for first 3 polls so we can confirm the loop runs
-    if (gpsPollCount <= 3) {
-      sendToWatch({ 'UPLOAD_MSG': 'GPS poll ' + gpsPollCount });
-    }
-    navigator.geolocation.getCurrentPosition(
-      function(pos) {
-        console.log('GPS cb ok poll#' + gpsPollCount);
-        onPosition(pos);
-      },
-      function(err) {
-        var code = err ? err.code : -1;
-        console.log('GPS cb err poll#' + gpsPollCount + ' code=' + code);
-        sendToWatch({ 'UPLOAD_MSG': 'GPS err:' + code });
-        onPositionError(err);
-      },
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
-    );
-  }
-  poll();
-  watchId = setInterval(poll, GPS_POLL_MS);
+  watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {
+    enableHighAccuracy: true,
+    maximumAge:         5000,
+    timeout:            30000
+  });
 }
 
 function stopGPS() {
   if (watchId !== null) {
-    clearInterval(watchId);
+    navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
 }
