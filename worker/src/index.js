@@ -10,6 +10,14 @@ export default {
       return serveConfig(url);
     }
 
+    if (request.method === 'GET' && url.pathname === '/ping') {
+      const auth = request.headers.get('Authorization') || '';
+      if (auth !== `Bearer ${env.UPLOAD_SECRET}`) {
+        return json({ ok: false, error: 'Unauthorized' }, 401);
+      }
+      return json({ ok: true });
+    }
+
     if (request.method === 'POST' && url.pathname === '/upload') {
       return handleUpload(request, env);
     }

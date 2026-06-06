@@ -38,7 +38,8 @@ static time_t   s_seg_start      = 0;
 static uint32_t s_distance_m = 0;
 static uint32_t s_speed_cms  = 0;  // centimeters/sec from phone GPS
 static int16_t  s_hr_bpm     = 0;
-static bool     s_gps_fix    = false;
+static bool     s_gps_fix      = false;
+static int8_t   s_worker_status = 0;  // 0=unknown 1=ok 2=error
 
 static bool      s_back_armed = false;
 static AppTimer *s_back_timer    = NULL;
@@ -164,6 +165,12 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
   if (t) persist_write_string(PERSIST_KEY_SECRET, t->value->cstring);
   t = dict_find(iter, MESSAGE_KEY_CRED_REQUEST);
   if (t) prv_send_creds();
+
+  t = dict_find(iter, MESSAGE_KEY_WORKER_STATUS);
+  if (t) {
+    s_worker_status = t->value->int8;
+    if (window_stack_get_top_window() == s_select_win && s_sel_gps) prv_update_gps_label();
+  }
 
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
   if (t) {
@@ -466,16 +473,17 @@ static void prv_sel_click_config(void *ctx) {
 // === Sport select window ===
 
 static void prv_update_gps_label(void) {
-  // Peek current HR to show live HRM status on select screen
   time_t now = time(NULL);
   HealthServiceAccessibilityMask mask =
     health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
   bool hrm_ok = (mask & HealthServiceAccessibilityMaskAvailable) &&
                 health_service_peek_current_value(HealthMetricHeartRateBPM) > 0;
 
-  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf),
-           "HRM %s  GPS %s",
-           hrm_ok    ? "\xe2\x9c\x93" : "--",   // ✓ U+2713
+  const char *wkr = s_worker_status == 1 ? "\xe2\x9c\x93" :  // ✓
+                    s_worker_status == 2 ? "!"               : "?";
+  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "Wkr%s HRM%s GPS%s",
+           wkr,
+           hrm_ok    ? "\xe2\x9c\x93" : "--",
            s_gps_fix ? "\xe2\x9c\x93" : "--");
   text_layer_set_text(s_sel_gps, s_sel_gps_buf);
   text_layer_set_text_color(s_sel_gps, GColorLightGray);

@@ -5,6 +5,8 @@
 var WORKER_URL    = '';
 var WORKER_SECRET = '';
 
+var workerOk      = false;
+
 var trackpoints   = [];
 var hrSamples     = [];
 var watchId       = null;
@@ -80,14 +82,33 @@ function onPositionError(err) {
   // err.code: 1=PERMISSION_DENIED 2=POSITION_UNAVAILABLE 3=TIMEOUT
   console.log('GPS error ' + err.code + ': ' + err.message);
   if (err.code === 3) {
-    sendToWatch({ 'UPLOAD_MSG': 'GPS searching...' });
     stopGPS();
-    startGPS();
+    startGPS();  // GPS-- label already shows searching; silent retry
   } else if (err.code === 1) {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS: no permission' });
   } else {
     sendToWatch({ 'GPS_HAS_FIX': 0, 'UPLOAD_MSG': 'GPS unavailable' });
   }
+}
+
+function pingWorker() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', WORKER_URL + '/ping');
+  xhr.setRequestHeader('Authorization', 'Bearer ' + WORKER_SECRET);
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      workerOk = data.ok === true;
+    } catch(e) { workerOk = false; }
+    sendToWatch({ 'WORKER_STATUS': workerOk ? 1 : 2 });
+    console.log('Worker ping: ' + (workerOk ? 'OK' : 'failed'));
+  };
+  xhr.onerror = function() {
+    workerOk = false;
+    sendToWatch({ 'WORKER_STATUS': 2 });
+    console.log('Worker ping: unreachable');
+  };
+  xhr.send();
 }
 
 function startGPS() {
@@ -232,10 +253,10 @@ Pebble.addEventListener('ready', function() {
   WORKER_URL    = storageGet('workerUrl');
   WORKER_SECRET = storageGet('workerSecret');
   if (!WORKER_URL) {
-    // localStorage cleared on reinstall — ask the watch (persistent storage survives)
-    sendToWatch({ 'CRED_REQUEST': 1 });
+    sendToWatch({ 'CRED_REQUEST': 1 });  // ask watch, localStorage may have been cleared
+  } else {
+    pingWorker();
   }
-  sendToWatch({ 'UPLOAD_MSG': 'JS ready, GPS init...' });
   startGPS();
 });
 
@@ -312,6 +333,9 @@ Pebble.addEventListener('appmessage', function(e) {
   if (msg.CRED_SECRET) {
     WORKER_SECRET = msg.CRED_SECRET;
     storageSet('workerSecret', msg.CRED_SECRET);
+  }
+  if ((msg.CRED_URL || msg.CRED_SECRET) && WORKER_URL && WORKER_SECRET) {
+    pingWorker();  // verify restored credentials immediately
   }
 
   if (msg.HR_BPM !== undefined && msg.HR_BPM > 0) {

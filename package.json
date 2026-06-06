@@ -31,7 +31,8 @@
       "UPLOAD_MSG",
       "CRED_REQUEST",
       "CRED_URL",
-      "CRED_SECRET"
+      "CRED_SECRET",
+      "WORKER_STATUS"
     ],
     "resources": {
       "media": [
