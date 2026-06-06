@@ -1,17 +1,19 @@
 /* Pebble companion: GPS tracking + GPX upload via CF Worker */
 
-// --- Configuration (fill in after deploying the Worker) ---
-var WORKER_URL    = 'https://pebble-strava.YOUR_SUBDOMAIN.workers.dev';
-var WORKER_SECRET = 'YOUR_SECRET_HERE';  // must match UPLOAD_SECRET in Worker
-// ----------------------------------------------------------
+// Credentials are never compiled in — they live in phone localStorage,
+// set by the in-app config page (long-press app → Settings).
+var WORKER_URL    = '';
+var WORKER_SECRET = '';
 
-var trackpoints = [];
-var hrSamples   = [];
-var watchId     = null;
-var sport       = 'run';      // 'run' or 'ride'
-var isActive    = false;
-var totalDist   = 0;          // meters
-var lastPos     = null;       // { lat, lon }
+var trackpoints   = [];
+var hrSamples     = [];
+var watchId       = null;
+var sport         = 'run';    // 'run' or 'ride'
+var isActive      = false;
+var totalDist     = 0;        // meters
+var lastPos       = null;     // { lat, lon }
+var gpsTick       = 0;
+var GPS_SEND_EVERY = 10;      // send AppMessage every N fixes (~10 s at 1 Hz GPS)
 
 // Haversine distance in meters between two lat/lon pairs
 function haversine(lat1, lon1, lat2, lon2) {
@@ -48,11 +50,17 @@ function onPosition(pos) {
 
     trackpoints.push({ lat: lat, lon: lon, alt: alt, time: ts });
 
-    sendToWatch({
-      'GPS_DISTANCE': Math.round(totalDist),
-      'GPS_SPEED':    Math.round(spd * 100),  // cm/s
-      'GPS_HAS_FIX':  1
-    });
+    gpsTick++;
+    // Always send on first fix so the watch shows GPS:Y immediately;
+    // after that, throttle to every GPS_SEND_EVERY fixes to reduce BLE traffic.
+    if (gpsTick === 1 || gpsTick >= GPS_SEND_EVERY) {
+      if (gpsTick >= GPS_SEND_EVERY) gpsTick = 0;
+      sendToWatch({
+        'GPS_DISTANCE': Math.round(totalDist),
+        'GPS_SPEED':    Math.round(spd * 100),  // cm/s
+        'GPS_HAS_FIX':  1
+      });
+    }
   }
 }
 
@@ -77,16 +85,51 @@ function stopGPS() {
   }
 }
 
+function timeOfDay(date) {
+  var h = date.getHours();
+  if (h < 12) return 'Morning';
+  if (h < 17) return 'Afternoon';
+  return 'Evening';
+}
+
+function activityLabel(city) {
+  var tod  = timeOfDay(new Date());
+  var type = sport === 'ride' ? 'Ride' : 'Run';
+  return (city ? city + ' ' : '') + tod + ' ' + type;
+}
+
+// Reverse geocode lat/lon to city name via BigDataCloud (free, no key required).
+// Calls back with the city string or null on any failure.
+function reverseGeocode(lat, lon, cb) {
+  var url = 'https://api.bigdatacloud.net/data/reverse-geocode-client' +
+            '?latitude=' + lat + '&longitude=' + lon + '&localityLanguage=en';
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', url);
+  xhr.onload = function() {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      cb(data.city || data.locality || null);
+    } catch (e) { cb(null); }
+  };
+  xhr.onerror = function() { cb(null); };
+  xhr.send();
+}
+
 // Build a GPX string with embedded HR data
 function buildGPX(activityName) {
-  var date = trackpoints.length > 0
-    ? trackpoints[0].time.split('T')[0]
-    : new Date().toISOString().split('T')[0];
+  var startTime = trackpoints.length > 0
+    ? trackpoints[0].time
+    : new Date().toISOString();
 
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<gpx version="1.1" creator="Pebble Strava Recorder"\n' +
+    '<gpx version="1.1" creator="Pebble Time 2"\n' +
     '  xmlns="http://www.topografix.com/GPX/1/1"\n' +
     '  xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">\n' +
+    '<metadata>\n' +
+    '  <name>' + activityName + '</name>\n' +
+    '  <time>' + startTime + '</time>\n' +
+    '  <link href="https://www.pebble.com"><text>Pebble Time 2</text></link>\n' +
+    '</metadata>\n' +
     '<trk>\n' +
     '<name>' + activityName + '</name>\n' +
     '<type>' + (sport === 'ride' ? '1' : '9') + '</type>\n' +
@@ -125,6 +168,10 @@ function buildGPX(activityName) {
 
 // Post GPX to the Cloudflare Worker, which emails it to you
 function uploadToWorker(gpxData, activityName) {
+  if (!WORKER_URL || !WORKER_SECRET) {
+    sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'Open Settings to configure' });
+    return;
+  }
   sendToWatch({ 'UPLOAD_STATUS': 0 });
 
   var xhr = new XMLHttpRequest();
@@ -158,6 +205,69 @@ function uploadToWorker(gpxData, activityName) {
 
 Pebble.addEventListener('ready', function() {
   console.log('Pebble Strava companion ready');
+  WORKER_URL    = Pebble.getLocalStorageItem('workerUrl')    || '';
+  WORKER_SECRET = Pebble.getLocalStorageItem('workerSecret') || '';
+  if (!WORKER_URL) console.log('Not configured — open Settings to set Worker URL');
+  // Pre-warm GPS so a fix is ready by the time the user presses start.
+  // onPosition only records trackpoints when isActive===true, so this is safe.
+  startGPS();
+});
+
+// === Config page (shown when user long-presses app → Settings) ===
+
+var CONFIG_HTML = '<!DOCTYPE html>' +
+'<html lang="en"><head>' +
+'<meta charset="utf-8">' +
+'<meta name="viewport" content="width=device-width,initial-scale=1">' +
+'<title>Strava Recorder Setup</title>' +
+'<style>' +
+'*{box-sizing:border-box;margin:0;padding:0}' +
+'body{font-family:-apple-system,sans-serif;background:#111;color:#eee;padding:24px 20px}' +
+'h1{font-size:20px;color:#ff6600;margin-bottom:6px}' +
+'.sub{font-size:13px;color:#888;margin-bottom:28px}' +
+'label{display:block;font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}' +
+'input{width:100%;padding:12px;background:#222;border:1px solid #444;border-radius:6px;color:#eee;font-size:15px;margin-bottom:6px;outline:none}' +
+'input:focus{border-color:#ff6600}' +
+'.hint{font-size:12px;color:#666;margin-bottom:20px}' +
+'button{width:100%;padding:14px;background:#ff6600;border:none;border-radius:6px;color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}' +
+'button:active{background:#cc5200}' +
+'</style></head><body>' +
+'<h1>Strava Recorder</h1>' +
+'<p class="sub">Enter your Cloudflare Worker details. Settings are stored on your phone only.</p>' +
+'<label>Worker URL</label>' +
+'<input id="u" type="url" placeholder="https://pebble-strava.xxx.workers.dev">' +
+'<p class="hint">From wrangler deploy output.</p>' +
+'<label>Upload Secret</label>' +
+'<input id="s" type="text" placeholder="your_upload_secret">' +
+'<p class="hint">The UPLOAD_SECRET you set with wrangler secret put.</p>' +
+'<button onclick="save()">Save &amp; Close</button>' +
+'<script>' +
+'var u=document.getElementById("u"),s=document.getElementById("s");' +
+'u.value=decodeURIComponent("__URL__");' +
+'s.value=decodeURIComponent("__SECRET__");' +
+'function save(){' +
+'  var d={workerUrl:u.value.trim(),workerSecret:s.value.trim()};' +
+'  location.href="pebblejs://close?data="+encodeURIComponent(JSON.stringify(d));' +
+'}' +
+'</script></body></html>';
+
+Pebble.addEventListener('showConfiguration', function() {
+  var html = CONFIG_HTML
+    .replace('__URL__',    encodeURIComponent(WORKER_URL    || ''))
+    .replace('__SECRET__', encodeURIComponent(WORKER_SECRET || ''));
+  Pebble.openURL('data:text/html,' + encodeURIComponent(html));
+});
+
+Pebble.addEventListener('webviewclosed', function(e) {
+  if (!e.response || e.response === 'CANCELLED') return;
+  try {
+    var data = JSON.parse(decodeURIComponent(e.response));
+    if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    Pebble.setLocalStorageItem('workerUrl',    data.workerUrl); }
+    if (data.workerSecret) { WORKER_SECRET = data.workerSecret; Pebble.setLocalStorageItem('workerSecret', data.workerSecret); }
+    console.log('Config saved: ' + WORKER_URL);
+  } catch (err) {
+    console.log('Config parse error: ' + err);
+  }
 });
 
 Pebble.addEventListener('appmessage', function(e) {
@@ -177,8 +287,9 @@ Pebble.addEventListener('appmessage', function(e) {
       hrSamples   = [];
       totalDist   = 0;
       lastPos     = null;
+      gpsTick     = 0;
       isActive    = true;
-      startGPS();
+      if (!watchId) startGPS();  // already running if pre-warmed on ready
       console.log('Workout started: ' + sport);
 
     } else if (action === 1) {  // STOP
@@ -188,10 +299,12 @@ Pebble.addEventListener('appmessage', function(e) {
         sendToWatch({ 'UPLOAD_STATUS': 2, 'UPLOAD_MSG': 'No GPS data' });
         return;
       }
-      var date         = new Date().toISOString().split('T')[0];
-      var activityName = (sport === 'ride' ? 'Cycling' : 'Running') + ' ' + date;
-      var gpx          = buildGPX(activityName);
-      uploadToWorker(gpx, activityName);
+      var first = trackpoints[0];
+      reverseGeocode(first.lat, first.lon, function(city) {
+        var activityName = activityLabel(city);
+        var gpx          = buildGPX(activityName);
+        uploadToWorker(gpx, activityName);
+      });
 
     } else if (action === 2) {  // PAUSE
       isActive = false;

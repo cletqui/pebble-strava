@@ -47,11 +47,11 @@ Receive POST /upload { gpx, sport, name }
 **Sport select** — UP: Running, DOWN: Cycling, SELECT: start
 
 **Workout screen**
-- Top bar (orange): heart rate + GPS fix status
-- Large (white): elapsed time
+- Large (white/gray): elapsed time — dims to gray when paused
 - Medium (white): distance
 - Medium (orange): speed km/h (cycling) or pace min/km (running)
-- Bottom (gray): hint / state
+- Medium (white): heart rate in bpm
+- Small (gray): HRM ✓ / GPS ✓ status row
 - SELECT: pause / resume — UP: lap vibration — BACK × 2 within 3s: stop
 
 ## Setup
@@ -64,12 +64,13 @@ After deploying, note your Worker URL (`https://pebble-strava.YOUR_SUBDOMAIN.wor
 
 ### 2. Configure the companion
 
-Edit `src/pkjs/index.js` and fill in the two constants at the top:
+Build and install the app (step 3), then on your phone:
 
-```js
-var WORKER_URL    = 'https://pebble-strava.YOUR_SUBDOMAIN.workers.dev';
-var WORKER_SECRET = 'YOUR_SECRET_HERE';  // must match UPLOAD_SECRET in Worker
-```
+- Open the **Pebble** app → long-press **Strava Recorder** → tap the **gear icon**
+- Enter your Worker URL and Upload Secret
+- Tap **Save & Close**
+
+Credentials are stored in phone localStorage — nothing is compiled into the `.pbw`.
 
 ### 3. Build and install
 
@@ -136,11 +137,10 @@ switching the Worker to POST to Runalyze instead of sending an email is a
 30-minute job.
 
 ### Komoot / GeoVelo
-Both were present in the user's previous setup when using a Garmin device.
-Neither has a public activity upload API — Garmin was pushing to them directly
-via dedicated integrations, not via Strava. Without Garmin, there is no
-automated path to either platform. Both are primarily pre-ride route planning
-tools anyway; they don't need to receive every workout.
+Neither has a public activity upload API. Garmin pushes to them via dedicated
+integrations, not via Strava. Without Garmin, there is no automated path to
+either platform. Both are primarily pre-ride route planning tools anyway; they
+don't need to receive every workout.
 
 ### Self-hosted Runalyze
 Open-source, full data ownership, identical API. Good option if you have a VPS

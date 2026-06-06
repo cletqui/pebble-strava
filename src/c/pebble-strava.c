@@ -14,8 +14,6 @@
 #define UPLOAD_SUCCESS 1
 #define UPLOAD_ERROR   2
 
-#define HR_SEND_EVERY 5  // send HR to phone every N timer ticks
-
 // === App state ===
 
 typedef enum {
@@ -29,13 +27,16 @@ typedef enum {
 static AppState s_state = STATE_SELECT;
 static int      s_sport = SPORT_RUNNING;
 
-static uint32_t s_elapsed_secs = 0;
-static uint32_t s_distance_m   = 0;
-static uint32_t s_speed_cms    = 0;  // centimeters/sec from phone GPS
-static int16_t  s_hr_bpm       = 0;
-static bool     s_gps_fix      = false;
+// Elapsed time: offset accumulates completed active segments; seg_start is the
+// wall-clock time the current segment began. get_elapsed() combines both live.
+static uint32_t s_elapsed_offset = 0;
+static time_t   s_seg_start      = 0;
 
-static int       s_hr_tick   = 0;
+static uint32_t s_distance_m = 0;
+static uint32_t s_speed_cms  = 0;  // centimeters/sec from phone GPS
+static int16_t  s_hr_bpm     = 0;
+static bool     s_gps_fix    = false;
+
 static bool      s_back_armed = false;
 static AppTimer *s_back_timer   = NULL;
 static AppTimer *s_workout_timer = NULL;
@@ -45,22 +46,28 @@ static AppTimer *s_workout_timer = NULL;
 static Window    *s_select_win;
 static TextLayer *s_sel_title;
 static TextLayer *s_sel_sport;
-static TextLayer *s_sel_hint;
+static TextLayer *s_sel_up_hint;
+static TextLayer *s_sel_sel_hint;
+static TextLayer *s_sel_dn_hint;
+static TextLayer *s_sel_gps;
+static GFont      s_icon_font_14;
 
 static Window    *s_workout_win;
-static TextLayer *s_wk_hr;
 static TextLayer *s_wk_time;
 static TextLayer *s_wk_dist;
 static TextLayer *s_wk_speed;
-static TextLayer *s_wk_bottom;
+static TextLayer *s_wk_bpm;
+static TextLayer *s_wk_status;
+static TextLayer *s_wk_sel_hint;
 
 // Persistent display buffers (TextLayer holds pointer, not a copy)
 static char s_sel_sport_buf[16];
-static char s_wk_hr_buf[24];
+static char s_sel_gps_buf[24];
 static char s_wk_time_buf[16];
 static char s_wk_dist_buf[20];
 static char s_wk_speed_buf[24];
-static char s_wk_bottom_buf[40];
+static char s_wk_bpm_buf[16];
+static char s_wk_status_buf[40];
 
 // === Formatting ===
 
@@ -99,9 +106,15 @@ static void fmt_speed(char *buf, size_t n, uint32_t cms, int sport) {
   }
 }
 
-// Forward declaration needed because prv_inbox_received calls update_workout_display
-// before it is defined (GPS display refresh on receipt rather than waiting for timer tick)
+static uint32_t get_elapsed(void) {
+  if (s_state == STATE_ACTIVE)
+    return s_elapsed_offset + (uint32_t)(time(NULL) - s_seg_start);
+  return s_elapsed_offset;
+}
+
+// Forward declarations: both called from prv_inbox_received before their definitions
 static void update_workout_display(void);
+static void prv_update_gps_label(void);
 
 // === AppMessage ===
 
@@ -110,17 +123,28 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
   bool gps_updated = false;
 
   t = dict_find(iter, MESSAGE_KEY_GPS_DISTANCE);
-  if (t) { s_distance_m = (uint32_t)t->value->int32; gps_updated = true; }
+  if (t) {
+    uint32_t d = (uint32_t)t->value->int32;
+    if (d != s_distance_m) { s_distance_m = d; gps_updated = true; }
+  }
 
   t = dict_find(iter, MESSAGE_KEY_GPS_SPEED);
-  if (t) { s_speed_cms = (uint32_t)t->value->int32; gps_updated = true; }
+  if (t) {
+    uint32_t spd = (uint32_t)t->value->int32;
+    if (spd != s_speed_cms) { s_speed_cms = spd; gps_updated = true; }
+  }
 
   t = dict_find(iter, MESSAGE_KEY_GPS_HAS_FIX);
-  if (t) { s_gps_fix = (bool)t->value->int8; gps_updated = true; }
+  if (t) {
+    bool fix = (bool)t->value->int8;
+    if (fix != s_gps_fix) { s_gps_fix = fix; gps_updated = true; }
+  }
 
-  // Refresh display immediately on GPS update so distance/speed don't lag
-  if (gps_updated && s_workout_win == window_stack_get_top_window()) {
-    update_workout_display();
+  // Refresh whichever window is visible on GPS update
+  if (gps_updated) {
+    Window *top = window_stack_get_top_window();
+    if (top == s_workout_win) update_workout_display();
+    else if (top == s_select_win && s_sel_gps) prv_update_gps_label();
   }
 
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
@@ -128,19 +152,19 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     int status = (int)t->value->int8;
     if (status == UPLOAD_SUCCESS) {
       s_state = STATE_DONE;
-      snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Saved! BACK to exit");
+      snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Saved! BACK to exit");
       APP_LOG(APP_LOG_LEVEL_INFO, "Upload succeeded");
       vibes_double_pulse();
     } else if (status == UPLOAD_ERROR) {
       s_state = STATE_DONE;
       Tuple *msg = dict_find(iter, MESSAGE_KEY_UPLOAD_MSG);
-      if (msg) snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Error: %.24s", msg->value->cstring);
-      else     snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Upload failed");
-      APP_LOG(APP_LOG_LEVEL_ERROR, "Upload error: %s", s_wk_bottom_buf);
+      if (msg) snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Error: %.30s", msg->value->cstring);
+      else     snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Upload failed");
+      APP_LOG(APP_LOG_LEVEL_ERROR, "Upload error: %s", s_wk_status_buf);
       vibes_long_pulse();
     }
     if (s_workout_win == window_stack_get_top_window()) {
-      text_layer_set_text(s_wk_bottom, s_wk_bottom_buf);
+      update_workout_display();
     }
   }
 }
@@ -166,8 +190,9 @@ static void prv_send_hr(void) {
 // === HR reading ===
 
 static void prv_read_hr(void) {
-  HealthServiceAccessibilityMask mask = health_service_metric_accessible(
-    HealthMetricHeartRateBPM, time(NULL), time(NULL));
+  time_t now = time(NULL);
+  HealthServiceAccessibilityMask mask =
+    health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
   if (mask & HealthServiceAccessibilityMaskAvailable) {
     HealthValue hr = health_service_peek_current_value(HealthMetricHeartRateBPM);
     if (hr > 0) s_hr_bpm = (int16_t)hr;
@@ -177,57 +202,51 @@ static void prv_read_hr(void) {
 // === Workout display ===
 
 static void update_workout_display(void) {
-  // HR + GPS status
-  char gps = s_gps_fix ? 'Y' : 'N';
-  if (s_hr_bpm > 0) snprintf(s_wk_hr_buf,    sizeof(s_wk_hr_buf),    "%d bpm  GPS:%c", s_hr_bpm, gps);
-  else              snprintf(s_wk_hr_buf,    sizeof(s_wk_hr_buf),    "-- bpm  GPS:%c", gps);
-
-  fmt_time(s_wk_time_buf,  sizeof(s_wk_time_buf),  s_elapsed_secs);
-  fmt_dist(s_wk_dist_buf,  sizeof(s_wk_dist_buf),  s_distance_m);
+  fmt_time(s_wk_time_buf,   sizeof(s_wk_time_buf),  get_elapsed());
+  fmt_dist(s_wk_dist_buf,   sizeof(s_wk_dist_buf),  s_distance_m);
   fmt_speed(s_wk_speed_buf, sizeof(s_wk_speed_buf), s_speed_cms, s_sport);
 
-  switch (s_state) {
-    case STATE_ACTIVE:
-      snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "SEL:pause  BACK x2:stop");
-      break;
-    case STATE_PAUSED:
-      snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "PAUSED  SEL:resume");
-      break;
-    case STATE_UPLOADING:
-      snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Uploading to Strava...");
-      break;
-    default:
-      break;
+  if (s_hr_bpm > 0) snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "%d bpm", s_hr_bpm);
+  else              snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "-- bpm");
+
+  // Status row: HRM/GPS icons normally; state messages override when needed
+  if (s_state == STATE_UPLOADING) {
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Sending GPX email...");
+  } else {
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf),
+             "HRM %s  GPS %s",
+             s_hr_bpm > 0 ? "\xe2\x9c\x93" : "--",   // ✓ U+2713
+             s_gps_fix    ? "\xe2\x9c\x93" : "--");
   }
 
-  text_layer_set_text(s_wk_hr,     s_wk_hr_buf);
-  text_layer_set_text(s_wk_time,   s_wk_time_buf);
-  text_layer_set_text(s_wk_dist,   s_wk_dist_buf);
-  text_layer_set_text(s_wk_speed,  s_wk_speed_buf);
-  text_layer_set_text(s_wk_bottom, s_wk_bottom_buf);
+  // Dim elapsed timer when paused — subtle state indicator
+  text_layer_set_text_color(s_wk_time,
+    s_state == STATE_PAUSED ? GColorLightGray : GColorWhite);
+
+  // SELECT hint: ▶ always visible (hint for pause/resume); grays out when uploading
+  text_layer_set_text_color(s_wk_sel_hint,
+    s_state == STATE_UPLOADING ? GColorDarkGray : GColorLightGray);
+
+  text_layer_set_text(s_wk_time,     s_wk_time_buf);
+  text_layer_set_text(s_wk_dist,     s_wk_dist_buf);
+  text_layer_set_text(s_wk_speed,    s_wk_speed_buf);
+  text_layer_set_text(s_wk_bpm,      s_wk_bpm_buf);
+  text_layer_set_text(s_wk_status,   s_wk_status_buf);
 }
 
-// === Workout timer (1 Hz) ===
+// === Workout timer (5 s) — HR read/send + display refresh ===
 
 static void prv_tick(void *ctx) {
   if (s_state != STATE_ACTIVE) return;
-
-  s_elapsed_secs++;
-  s_hr_tick++;
-
-  if (s_hr_tick >= HR_SEND_EVERY) {
-    s_hr_tick = 0;
-    prv_read_hr();
-    prv_send_hr();
-  }
-
+  prv_read_hr();
+  prv_send_hr();
   update_workout_display();
-  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
+  s_workout_timer = app_timer_register(5000, prv_tick, NULL);
 }
 
 static void start_timer(void) {
   if (s_workout_timer) app_timer_cancel(s_workout_timer);
-  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
+  s_workout_timer = app_timer_register(5000, prv_tick, NULL);
 }
 
 static void stop_timer(void) {
@@ -240,13 +259,13 @@ static void stop_timer(void) {
 // === Workout actions ===
 
 static void action_start(void) {
-  s_state        = STATE_ACTIVE;
-  s_elapsed_secs = 0;
-  s_distance_m   = 0;
-  s_speed_cms    = 0;
-  s_hr_bpm       = 0;
-  s_gps_fix      = false;
-  s_hr_tick      = 0;
+  s_state          = STATE_ACTIVE;
+  s_elapsed_offset = 0;
+  s_seg_start      = time(NULL);
+  s_distance_m     = 0;
+  s_speed_cms      = 0;
+  s_hr_bpm         = 0;
+  s_gps_fix        = false;
 
   prv_read_hr();
   prv_send_cmd(CMD_START);
@@ -258,7 +277,8 @@ static void action_start(void) {
 }
 
 static void action_pause(void) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "Paused at %lus", (unsigned long)s_elapsed_secs);
+  s_elapsed_offset = get_elapsed();  // freeze before state changes
+  APP_LOG(APP_LOG_LEVEL_INFO, "Paused at %lus", (unsigned long)s_elapsed_offset);
   s_state = STATE_PAUSED;
   stop_timer();
   prv_send_cmd(CMD_PAUSE);
@@ -268,7 +288,8 @@ static void action_pause(void) {
 
 static void action_resume(void) {
   APP_LOG(APP_LOG_LEVEL_INFO, "Resumed");
-  s_state = STATE_ACTIVE;
+  s_seg_start = time(NULL);  // start a new active segment
+  s_state     = STATE_ACTIVE;
   prv_send_cmd(CMD_RESUME);
   start_timer();
   update_workout_display();
@@ -276,7 +297,8 @@ static void action_resume(void) {
 }
 
 static void action_stop(void) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "Stopped: elapsed=%lus dist=%lum", (unsigned long)s_elapsed_secs, (unsigned long)s_distance_m);
+  s_elapsed_offset = get_elapsed();  // freeze before state changes
+  APP_LOG(APP_LOG_LEVEL_INFO, "Stopped: elapsed=%lus dist=%lum", (unsigned long)s_elapsed_offset, (unsigned long)s_distance_m);
   s_state = STATE_UPLOADING;
   stop_timer();
   prv_send_cmd(CMD_STOP);
@@ -289,10 +311,9 @@ static void action_stop(void) {
 static void prv_back_timer_cb(void *ctx) {
   s_back_armed = false;
   s_back_timer = NULL;
+  // Restore normal status row after "BACK again to stop" message
   if (s_state == STATE_ACTIVE || s_state == STATE_PAUSED) {
-    snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf),
-             s_state == STATE_ACTIVE ? "SEL:pause  BACK x2:stop" : "PAUSED  SEL:resume");
-    text_layer_set_text(s_wk_bottom, s_wk_bottom_buf);
+    update_workout_display();
   }
 }
 
@@ -321,8 +342,8 @@ static void prv_wk_back(ClickRecognizerRef r, void *ctx) {
     action_stop();
   } else {
     s_back_armed = true;
-    snprintf(s_wk_bottom_buf, sizeof(s_wk_bottom_buf), "Press BACK again to stop");
-    text_layer_set_text(s_wk_bottom, s_wk_bottom_buf);
+    snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Press BACK again to stop");
+    text_layer_set_text(s_wk_status, s_wk_status_buf);
     s_back_timer = app_timer_register(3000, prv_back_timer_cb, NULL);
   }
 }
@@ -363,40 +384,84 @@ static void prv_sel_click_config(void *ctx) {
 
 // === Sport select window ===
 
+static void prv_update_gps_label(void) {
+  // Peek current HR to show live HRM status on select screen
+  time_t now = time(NULL);
+  HealthServiceAccessibilityMask mask =
+    health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
+  bool hrm_ok = (mask & HealthServiceAccessibilityMaskAvailable) &&
+                health_service_peek_current_value(HealthMetricHeartRateBPM) > 0;
+
+  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf),
+           "HRM %s  GPS %s",
+           hrm_ok    ? "\xe2\x9c\x93" : "--",   // ✓ U+2713
+           s_gps_fix ? "\xe2\x9c\x93" : "--");
+  text_layer_set_text(s_sel_gps, s_sel_gps_buf);
+  text_layer_set_text_color(s_sel_gps, GColorLightGray);
+}
+
 static void prv_select_load(Window *win) {
   Layer  *root   = window_get_root_layer(win);
   GRect   bounds = layer_get_bounds(root);
   int     w      = bounds.size.w;
 
-  s_sel_title = text_layer_create(GRect(0, 28, w, 30));
+  s_sel_title = text_layer_create(GRect(0, 24, w, 26));
   text_layer_set_text(s_sel_title, "SELECT SPORT");
   text_layer_set_text_alignment(s_sel_title, GTextAlignmentCenter);
-  text_layer_set_font(s_sel_title, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  text_layer_set_font(s_sel_title, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   text_layer_set_background_color(s_sel_title, GColorClear);
   text_layer_set_text_color(s_sel_title, GColorWhite);
   layer_add_child(root, text_layer_get_layer(s_sel_title));
 
-  s_sel_sport = text_layer_create(GRect(0, 84, w, 56));
+  s_sel_sport = text_layer_create(GRect(0, 88, w, 42));
   prv_update_sport_label();
   text_layer_set_text_alignment(s_sel_sport, GTextAlignmentCenter);
-  text_layer_set_font(s_sel_sport, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
+  text_layer_set_font(s_sel_sport, fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK));
   text_layer_set_background_color(s_sel_sport, GColorClear);
   text_layer_set_text_color(s_sel_sport, GColorOrange);
   layer_add_child(root, text_layer_get_layer(s_sel_sport));
 
-  s_sel_hint = text_layer_create(GRect(4, 184, w - 8, 40));
-  text_layer_set_text(s_sel_hint, "UP:Run  DOWN:Cycle  SEL:Go");
-  text_layer_set_text_alignment(s_sel_hint, GTextAlignmentCenter);
-  text_layer_set_font(s_sel_hint, fonts_get_system_font(FONT_KEY_GOTHIC_14));
-  text_layer_set_background_color(s_sel_hint, GColorClear);
-  text_layer_set_text_color(s_sel_hint, GColorLightGray);
-  layer_add_child(root, text_layer_get_layer(s_sel_hint));
+  // HRM + GPS status — bottom of screen, dimmed
+  s_sel_gps = text_layer_create(GRect(0, 196, w, 18));
+  prv_update_gps_label();
+  text_layer_set_text_alignment(s_sel_gps, GTextAlignmentCenter);
+  text_layer_set_font(s_sel_gps, s_icon_font_14);
+  text_layer_set_background_color(s_sel_gps, GColorClear);
+  layer_add_child(root, text_layer_get_layer(s_sel_gps));
+
+  // Right-side button hints — unicode glyphs from custom font
+  s_sel_up_hint = text_layer_create(GRect(w - 20, 42, 20, 24));
+  text_layer_set_text(s_sel_up_hint, "\xe2\x96\xb2");   // ▲ U+25B2
+  text_layer_set_text_alignment(s_sel_up_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_sel_up_hint, s_icon_font_14);
+  text_layer_set_background_color(s_sel_up_hint, GColorClear);
+  text_layer_set_text_color(s_sel_up_hint, GColorLightGray);
+  layer_add_child(root, text_layer_get_layer(s_sel_up_hint));
+
+  s_sel_sel_hint = text_layer_create(GRect(w - 20, 101, 20, 24));
+  text_layer_set_text(s_sel_sel_hint, "\xe2\x96\xb6"); // ▶ U+25B6
+  text_layer_set_text_alignment(s_sel_sel_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_sel_sel_hint, s_icon_font_14);
+  text_layer_set_background_color(s_sel_sel_hint, GColorClear);
+  text_layer_set_text_color(s_sel_sel_hint, GColorLightGray);
+  layer_add_child(root, text_layer_get_layer(s_sel_sel_hint));
+
+  s_sel_dn_hint = text_layer_create(GRect(w - 20, 161, 20, 24));
+  text_layer_set_text(s_sel_dn_hint, "\xe2\x96\xbc");  // ▼ U+25BC
+  text_layer_set_text_alignment(s_sel_dn_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_sel_dn_hint, s_icon_font_14);
+  text_layer_set_background_color(s_sel_dn_hint, GColorClear);
+  text_layer_set_text_color(s_sel_dn_hint, GColorLightGray);
+  layer_add_child(root, text_layer_get_layer(s_sel_dn_hint));
 }
 
 static void prv_select_unload(Window *win) {
   text_layer_destroy(s_sel_title);
   text_layer_destroy(s_sel_sport);
-  text_layer_destroy(s_sel_hint);
+  text_layer_destroy(s_sel_gps);
+  text_layer_destroy(s_sel_up_hint);
+  text_layer_destroy(s_sel_sel_hint);
+  text_layer_destroy(s_sel_dn_hint);
 }
 
 // === Workout window ===
@@ -406,16 +471,12 @@ static void prv_workout_load(Window *win) {
   GRect  bounds = layer_get_bounds(root);
   int    w      = bounds.size.w;
 
-  // HR + GPS status (top)
-  s_wk_hr = text_layer_create(GRect(0, 4, w, 22));
-  text_layer_set_text_alignment(s_wk_hr, GTextAlignmentCenter);
-  text_layer_set_font(s_wk_hr, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
-  text_layer_set_background_color(s_wk_hr, GColorClear);
-  text_layer_set_text_color(s_wk_hr, GColorOrange);
-  layer_add_child(root, text_layer_get_layer(s_wk_hr));
+  // Layout (200×228): time(y=14) / dist(y=74) / speed(y=108) / bpm(y=142) / status(y=180)
+  // Text layers span full w so they centre on the 200px screen.
+  // The ▶ hint on the right edge is a separate layer drawn on top.
 
-  // Elapsed time (large, center)
-  s_wk_time = text_layer_create(GRect(0, 32, w, 56));
+  // Elapsed time — large, dims to gray on pause
+  s_wk_time = text_layer_create(GRect(0, 14, w, 56));
   text_layer_set_text_alignment(s_wk_time, GTextAlignmentCenter);
   text_layer_set_font(s_wk_time, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
   text_layer_set_background_color(s_wk_time, GColorClear);
@@ -423,7 +484,7 @@ static void prv_workout_load(Window *win) {
   layer_add_child(root, text_layer_get_layer(s_wk_time));
 
   // Distance
-  s_wk_dist = text_layer_create(GRect(0, 100, w, 36));
+  s_wk_dist = text_layer_create(GRect(0, 74, w, 32));
   text_layer_set_text_alignment(s_wk_dist, GTextAlignmentCenter);
   text_layer_set_font(s_wk_dist, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
   text_layer_set_background_color(s_wk_dist, GColorClear);
@@ -431,35 +492,55 @@ static void prv_workout_load(Window *win) {
   layer_add_child(root, text_layer_get_layer(s_wk_dist));
 
   // Speed / pace
-  s_wk_speed = text_layer_create(GRect(0, 138, w, 36));
+  s_wk_speed = text_layer_create(GRect(0, 108, w, 32));
   text_layer_set_text_alignment(s_wk_speed, GTextAlignmentCenter);
   text_layer_set_font(s_wk_speed, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
   text_layer_set_background_color(s_wk_speed, GColorClear);
   text_layer_set_text_color(s_wk_speed, GColorOrange);
   layer_add_child(root, text_layer_get_layer(s_wk_speed));
 
-  // Bottom hint / state
-  s_wk_bottom = text_layer_create(GRect(4, 190, w - 8, 36));
-  text_layer_set_text_alignment(s_wk_bottom, GTextAlignmentCenter);
-  text_layer_set_font(s_wk_bottom, fonts_get_system_font(FONT_KEY_GOTHIC_14));
-  text_layer_set_background_color(s_wk_bottom, GColorClear);
-  text_layer_set_text_color(s_wk_bottom, GColorLightGray);
-  layer_add_child(root, text_layer_get_layer(s_wk_bottom));
+  // Heart rate
+  s_wk_bpm = text_layer_create(GRect(0, 142, w, 32));
+  text_layer_set_text_alignment(s_wk_bpm, GTextAlignmentCenter);
+  text_layer_set_font(s_wk_bpm, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD));
+  text_layer_set_background_color(s_wk_bpm, GColorClear);
+  text_layer_set_text_color(s_wk_bpm, GColorWhite);
+  layer_add_child(root, text_layer_get_layer(s_wk_bpm));
+
+  // HRM ✓  GPS ✓ — small dimmed status row (same style as select screen)
+  s_wk_status = text_layer_create(GRect(0, 180, w, 16));
+  text_layer_set_text_alignment(s_wk_status, GTextAlignmentCenter);
+  text_layer_set_font(s_wk_status, s_icon_font_14);
+  text_layer_set_background_color(s_wk_status, GColorClear);
+  text_layer_set_text_color(s_wk_status, GColorLightGray);
+  layer_add_child(root, text_layer_get_layer(s_wk_status));
+
+  // SELECT button hint (▶) — right edge, aligned with physical button (~y=101)
+  s_wk_sel_hint = text_layer_create(GRect(w - 20, 101, 20, 24));
+  text_layer_set_text(s_wk_sel_hint, "\xe2\x96\xb6");  // ▶ U+25B6
+  text_layer_set_text_alignment(s_wk_sel_hint, GTextAlignmentCenter);
+  text_layer_set_font(s_wk_sel_hint, s_icon_font_14);
+  text_layer_set_background_color(s_wk_sel_hint, GColorClear);
+  text_layer_set_text_color(s_wk_sel_hint, GColorLightGray);
+  layer_add_child(root, text_layer_get_layer(s_wk_sel_hint));
 
   update_workout_display();
 }
 
 static void prv_workout_unload(Window *win) {
-  text_layer_destroy(s_wk_hr);
   text_layer_destroy(s_wk_time);
   text_layer_destroy(s_wk_dist);
   text_layer_destroy(s_wk_speed);
-  text_layer_destroy(s_wk_bottom);
+  text_layer_destroy(s_wk_bpm);
+  text_layer_destroy(s_wk_status);
+  text_layer_destroy(s_wk_sel_hint);
 }
 
 // === Init / Deinit ===
 
 static void prv_init(void) {
+  s_icon_font_14 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ICONS_14));
+
   s_select_win = window_create();
   window_set_background_color(s_select_win, GColorBlack);
   window_set_click_config_provider(s_select_win, prv_sel_click_config);
@@ -486,6 +567,7 @@ static void prv_deinit(void) {
   stop_timer();
   window_destroy(s_select_win);
   window_destroy(s_workout_win);
+  fonts_unload_custom_font(s_icon_font_14);
 }
 
 int main(void) {

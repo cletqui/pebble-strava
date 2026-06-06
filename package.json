@@ -18,6 +18,7 @@
     "watchapp": {
       "watchface": false
     },
+    "capabilities": ["configurable"],
     "messageKeys": [
       "CMD_ACTION",
       "CMD_SPORT",
@@ -29,7 +30,13 @@
       "UPLOAD_MSG"
     ],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "font",
+          "name": "FONT_ICONS_14",
+          "file": "fonts/icons.ttf"
+        }
+      ]
     }
   }
 }

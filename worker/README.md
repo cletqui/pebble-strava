@@ -17,24 +17,24 @@ email only. That's all this Worker needs.
 ### 2. Install dependencies
 
 ```sh
-npm install
+bun install   # or: npm install
 ```
 
 ### 3. Set secrets
 
 ```sh
-npx wrangler secret put RESEND_API_KEY   # your Resend API key
-npx wrangler secret put UPLOAD_SECRET    # any random string, e.g. openssl rand -hex 16
-npx wrangler secret put USER_EMAIL       # the email address to send GPX files to
+bunx wrangler secret put RESEND_API_KEY   # your Resend API key
+bunx wrangler secret put UPLOAD_SECRET    # any random string, e.g. openssl rand -hex 16
+bunx wrangler secret put USER_EMAIL       # the email address to send GPX files to
 ```
 
 `UPLOAD_SECRET` is a shared secret between the Worker and the Pebble companion.
-Copy it into `WORKER_SECRET` in `../src/pkjs/index.js`.
+Copy it into `WORKER_SECRET` in `../src/pkjs/config.js` (gitignored).
 
 ### 4. Deploy
 
 ```sh
-npm run deploy
+bun run deploy   # or: npm run deploy
 ```
 
 Wrangler will print your Worker URL:
@@ -42,7 +42,7 @@ Wrangler will print your Worker URL:
 https://pebble-strava.YOUR_SUBDOMAIN.workers.dev
 ```
 
-Copy it into `WORKER_URL` in `../src/pkjs/index.js`.
+Copy it into `WORKER_URL` in `../src/pkjs/config.js`.
 
 ### 5. Verify
 

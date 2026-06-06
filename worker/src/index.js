@@ -6,6 +6,10 @@ export default {
       return json({ ok: true, service: 'pebble-strava-worker' });
     }
 
+    if (request.method === 'GET' && url.pathname === '/config') {
+      return serveConfig(url);
+    }
+
     if (request.method === 'POST' && url.pathname === '/upload') {
       return handleUpload(request, env);
     }
@@ -13,6 +17,56 @@ export default {
     return new Response('Not found', { status: 404 });
   },
 };
+
+function serveConfig(url) {
+  const workerUrl    = url.searchParams.get('url')    || '';
+  const workerSecret = url.searchParams.get('secret') || '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Strava Recorder — Setup</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,sans-serif;background:#111;color:#eee;padding:24px 20px;min-height:100vh}
+  h1{font-size:20px;color:#ff6600;margin-bottom:6px}
+  .sub{font-size:13px;color:#888;margin-bottom:28px}
+  label{display:block;font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  input{width:100%;padding:12px;background:#222;border:1px solid #444;border-radius:6px;color:#eee;font-size:15px;margin-bottom:20px;outline:none}
+  input:focus{border-color:#ff6600}
+  .hint{font-size:12px;color:#666;margin-top:-16px;margin-bottom:20px}
+  button{width:100%;padding:14px;background:#ff6600;border:none;border-radius:6px;color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}
+  button:active{background:#cc5200}
+</style>
+</head>
+<body>
+<h1>Strava Recorder</h1>
+<p class="sub">Pebble companion setup — settings are stored on your phone.</p>
+<label>Cloudflare Worker URL</label>
+<input id="url" type="url" placeholder="https://pebble-strava.xxx.workers.dev" value="${workerUrl}">
+<p class="hint">Deploy the included worker/ directory to get this URL.</p>
+<label>Upload Secret</label>
+<input id="secret" type="text" placeholder="your_upload_secret" value="${workerSecret}">
+<p class="hint">The UPLOAD_SECRET you set with <code>wrangler secret put</code>.</p>
+<button onclick="save()">Save &amp; Close</button>
+<script>
+function save() {
+  var data = {
+    workerUrl:    document.getElementById('url').value.trim(),
+    workerSecret: document.getElementById('secret').value.trim()
+  };
+  location.href = 'pebblejs://close?data=' + encodeURIComponent(JSON.stringify(data));
+}
+</script>
+</body>
+</html>`;
+
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html;charset=utf-8' },
+  });
+}
 
 async function handleUpload(request, env) {
   // Shared secret auth — prevents anyone else from sending emails via this Worker
