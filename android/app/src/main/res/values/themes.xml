@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PebbleStrava" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#FF6600</item>
+        <item name="colorPrimaryVariant">#CC5200</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:windowBackground">#111111</item>
+        <item name="android:statusBarColor">#111111</item>
+    </style>
+</resources>

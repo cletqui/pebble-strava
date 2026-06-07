@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple GPS pin icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20C42.95,20 34,28.95 34,40C34,54 54,88 54,88C54,88 74,54 74,40C74,28.95 65.05,20 54,20ZM54,47C50.13,47 47,43.87 47,40C47,36.13 50.13,33 54,33C57.87,33 61,36.13 61,40C61,43.87 57.87,47 54,47Z"/>
+</vector>

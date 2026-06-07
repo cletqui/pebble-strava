@@ -1,0 +1,2 @@
+-keep class com.getpebble.** { *; }
+-keep class re.clet.pebblestrava.** { *; }
