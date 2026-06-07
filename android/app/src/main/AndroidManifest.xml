@@ -8,9 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Required for PebbleKit broadcast communication -->
-    <uses-permission android:name="com.getpebble.android.permission.RECEIVE_MESSAGES" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -34,13 +32,12 @@
             android:exported="false"
             android:foregroundServiceType="location" />
 
-        <!-- PebbleKit: receive AppMessages from the Pebble watch -->
+        <!-- Auto-start GPS service after device reboot -->
         <receiver
-            android:name="com.getpebble.android.kit.PebbleKit$PebbleDataReceiver"
-            android:exported="true"
-            android:permission="com.getpebble.android.permission.SEND_MESSAGES">
+            android:name=".BootReceiver"
+            android:exported="false">
             <intent-filter>
-                <action android:name="com.getpebble.action.app.RECEIVE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 

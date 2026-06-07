@@ -35,22 +35,22 @@ class GpsService : Service() {
 
     private lateinit var locationManager: LocationManager
     private var pebbleReceiver: BroadcastReceiver? = null
+    private var gpsStarted = false
 
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
 
-    private var isActive    = false
-    private var sport       = Constants.SPORT_RUNNING
-    private var totalDistM  = 0.0
-    private var lastLat     = Double.NaN
-    private var lastLon     = Double.NaN
-    private var gpsTick     = 0
-    private var lastLocation: Location? = null
+    private var isActive   = false
+    private var sport      = Constants.SPORT_RUNNING
+    private var totalDistM = 0.0
+    private var lastLat    = Double.NaN
+    private var lastLon    = Double.NaN
+    private var gpsTick    = 0
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(loc: Location) = handleLocation(loc)
         @Deprecated("Deprecated in API 29") override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
-        override fun onProviderEnabled(provider: String)  {}
+        override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {
             PebbleMessenger.sendGpsFix(this@GpsService, false)
         }
@@ -68,7 +68,7 @@ class GpsService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startGps()
+        if (!gpsStarted) startGps()
         return START_STICKY
     }
 
@@ -82,26 +82,26 @@ class GpsService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startGps() {
-        val hasGps = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-        if (!hasGps) {
+        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
             PebbleMessenger.sendGpsFix(this, false)
             return
         }
         locationManager.requestLocationUpdates(
             LocationManager.GPS_PROVIDER,
-            1000L,   // min interval ms
-            1f,      // min distance m
+            1000L,
+            1f,
             locationListener,
             Looper.getMainLooper()
         )
+        gpsStarted = true
     }
 
     private fun stopGps() {
         locationManager.removeUpdates(locationListener)
+        gpsStarted = false
     }
 
     private fun handleLocation(loc: Location) {
-        lastLocation = loc
         val lat = loc.latitude
         val lon = loc.longitude
         val alt = loc.altitude
@@ -120,18 +120,16 @@ class GpsService : Service() {
             if (gpsTick == 1 || gpsTick >= Constants.GPS_SEND_EVERY) {
                 if (gpsTick >= Constants.GPS_SEND_EVERY) gpsTick = 0
                 PebbleMessenger.sendGps(this,
-                    hasFix     = true,
-                    distanceM  = totalDistM.toInt(),
-                    speedCms   = (spd * 100).toInt()
+                    hasFix    = true,
+                    distanceM = totalDistM.toInt(),
+                    speedCms  = (spd * 100).toInt()
                 )
             }
         } else {
-            // Pre-workout: keep GPS status current on the watch select screen
+            // Pre/post-workout: keep GPS fix status current on the watch select screen
             gpsTick++
-            if (gpsTick == 1) {
-                PebbleMessenger.sendGpsFix(this, true)
-            } else if (gpsTick >= Constants.GPS_SEND_EVERY) {
-                gpsTick = 0
+            if (gpsTick == 1 || gpsTick >= Constants.GPS_SEND_EVERY) {
+                if (gpsTick >= Constants.GPS_SEND_EVERY) gpsTick = 0
                 PebbleMessenger.sendGpsFix(this, true)
             }
         }
@@ -150,13 +148,15 @@ class GpsService : Service() {
     }
 
     private fun handlePebbleMessage(data: PebbleDictionary) {
-        data.getUnsignedIntegerAsLong(Constants.KEY_CRED_URL)?.let { /* handled as string below */ }
-        data.getString(Constants.KEY_CRED_URL)?.let { url ->
-            prefs().edit().putString(Constants.PREF_WORKER_URL, url).apply()
-        }
-        data.getString(Constants.KEY_CRED_SECRET)?.let { secret ->
-            prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
-            pingWorker()
+        val url    = data.getString(Constants.KEY_CRED_URL)
+        val secret = data.getString(Constants.KEY_CRED_SECRET)
+
+        if (url != null) prefs().edit().putString(Constants.PREF_WORKER_URL, url).apply()
+        if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
+        if (url != null || secret != null) {
+            val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
+            val s = secret ?: prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
+            if (u.isNotEmpty() && s.isNotEmpty()) pingWorker(u, s)
         }
 
         data.getUnsignedIntegerAsLong(Constants.KEY_HR_BPM)?.let { hr ->
@@ -201,6 +201,7 @@ class GpsService : Service() {
             }
             Constants.CMD_RESUME -> {
                 isActive = true
+                gpsTick  = 0   // send GPS update immediately on resume
                 updateNotification("Recording ${if (sport == Constants.SPORT_CYCLING) "ride" else "run"}…")
             }
         }
@@ -209,18 +210,16 @@ class GpsService : Service() {
     // === Credentials ===
 
     private fun requestCredentials() {
-        val url = prefs().getString(Constants.PREF_WORKER_URL, "") ?: ""
-        if (url.isNotEmpty()) {
-            pingWorker()
+        val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
+        val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
+        if (url.isNotEmpty() && secret.isNotEmpty()) {
+            pingWorker(url, secret)
         } else {
             PebbleMessenger.sendCredRequest(this)
         }
     }
 
-    private fun pingWorker() {
-        val url    = prefs().getString(Constants.PREF_WORKER_URL, "") ?: ""
-        val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
-        if (url.isEmpty() || secret.isEmpty()) return
+    private fun pingWorker(url: String, secret: String) {
         Thread {
             try {
                 val conn = URL("$url/ping").openConnection() as HttpURLConnection
@@ -239,7 +238,7 @@ class GpsService : Service() {
     // === Upload ===
 
     private fun uploadAsync() {
-        val url    = prefs().getString(Constants.PREF_WORKER_URL, "") ?: ""
+        val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
         val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
         if (url.isEmpty() || secret.isEmpty()) {
             PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_ERROR, "No credentials")
@@ -249,7 +248,7 @@ class GpsService : Service() {
         Thread {
             try {
                 val activityName = buildActivityName()
-                val gpx = buildGpx(activityName)
+                val gpx  = buildGpx(activityName)
                 val body = JSONObject().apply {
                     put("gpx",   gpx)
                     put("sport", if (sport == Constants.SPORT_CYCLING) "ride" else "run")
@@ -286,16 +285,18 @@ class GpsService : Service() {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val tod  = when { hour < 12 -> "Morning"; hour < 17 -> "Afternoon"; else -> "Evening" }
         val type = if (sport == Constants.SPORT_CYCLING) "Ride" else "Run"
-        val city = if (!lastLat.isNaN()) reverseGeocode(lastLat, lastLon) else null
+        // Use first trackpoint for geocoding — lastLat/lastLon may be NaN if paused before stop
+        val first = trackpoints.firstOrNull()
+        val city  = if (first != null) reverseGeocode(first.lat, first.lon) else null
         return "${if (city != null) "$city " else ""}$tod $type"
     }
 
     private fun reverseGeocode(lat: Double, lon: Double): String? {
         return try {
             @Suppress("DEPRECATION")
-            val addrs = android.location.Geocoder(this, Locale.ENGLISH)
+            android.location.Geocoder(this, Locale.ENGLISH)
                 .getFromLocation(lat, lon, 1)
-            addrs?.firstOrNull()?.locality
+                ?.firstOrNull()?.locality
         } catch (e: Exception) { null }
     }
 
@@ -303,7 +304,7 @@ class GpsService : Service() {
         val fmt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).also {
             it.timeZone = TimeZone.getTimeZone("UTC")
         }
-        val startTime = if (trackpoints.isNotEmpty()) fmt.format(Date(trackpoints[0].time)) else fmt.format(Date())
+        val startTime = fmt.format(Date(trackpoints.first().time))
         val trackType = if (sport == Constants.SPORT_CYCLING) "1" else "9"
 
         val sb = StringBuilder()
@@ -316,7 +317,7 @@ class GpsService : Service() {
 
         for (tp in trackpoints) {
             val tpTime = fmt.format(Date(tp.time))
-            val bestHr  = hrSamples.minByOrNull { abs(it.ts - tp.time) }
+            val bestHr = hrSamples.minByOrNull { abs(it.ts - tp.time) }
                 ?.takeIf { abs(it.ts - tp.time) < 30_000 }?.hr ?: 0
 
             sb.append("<trkpt lat=\"${"%.7f".format(tp.lat)}\" lon=\"${"%.7f".format(tp.lon)}\">\n")
@@ -371,8 +372,8 @@ class GpsService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(Constants.NOTIF_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java)
+            .notify(Constants.NOTIF_ID, buildNotification(text))
     }
 
     private fun prefs() = getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
