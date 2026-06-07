@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -33,7 +34,7 @@ class GpsService : Service() {
     data class HrSample(val hr: Int, val ts: Long)
 
     private lateinit var locationManager: LocationManager
-    private var pebbleReceiver: PebbleKit.PebbleDataReceiver? = null
+    private var pebbleReceiver: BroadcastReceiver? = null
 
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
@@ -73,7 +74,7 @@ class GpsService : Service() {
 
     override fun onDestroy() {
         stopGps()
-        pebbleReceiver?.let { PebbleKit.unregisterPebbleKit(this, it) }
+        pebbleReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) {} }
         super.onDestroy()
     }
 

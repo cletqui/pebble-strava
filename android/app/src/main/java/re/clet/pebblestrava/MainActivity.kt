@@ -1,6 +1,7 @@
 package re.clet.pebblestrava
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -24,7 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnService: Button
     private lateinit var btnPermissions: Button
 
-    private var pebbleReceiver: PebbleKit.PebbleDataReceiver? = null
+    private var pebbleReceiver: BroadcastReceiver? = null
 
     companion object {
         private const val REQ_PERMS = 1001
@@ -62,7 +63,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        pebbleReceiver?.let { PebbleKit.unregisterPebbleKit(this, it) }
+        pebbleReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) {} }
         pebbleReceiver = null
     }
 
