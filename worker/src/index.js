@@ -111,13 +111,13 @@ async function handleUpload(request, env) {
     return json({ ok: false, error: 'Invalid JSON' }, 400);
   }
 
-  const { gpx, sport, name } = body;
+  const { gpx, sport, name, desc } = body;
   if (!gpx) return json({ ok: false, error: 'Missing gpx field' }, 400);
 
   const activityName = name || (sport === 'ride' ? 'Cycling' : 'Running') + ' - Pebble';
   const filename     = activityName.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/ /g, '_') + '.gpx';
 
-  const result = await sendEmail(env, activityName, filename, gpx, sport);
+  const result = await sendEmail(env, activityName, filename, gpx, sport, desc);
   if (!result.ok) {
     return json({ ok: false, error: result.error }, 500);
   }
@@ -125,8 +125,20 @@ async function handleUpload(request, env) {
   return json({ ok: true });
 }
 
-async function sendEmail(env, activityName, filename, gpx, sport) {
+async function sendEmail(env, activityName, filename, gpx, sport, desc) {
   const typeLabel = sport === 'ride' ? 'cycling' : 'running';
+
+  const lines = [
+    `Your ${typeLabel} activity is attached as a GPX file.`,
+  ];
+  if (desc) lines.push('', desc);
+  lines.push(
+    '',
+    'Import to Strava:',
+    'https://www.strava.com/upload/select',
+    '',
+    '— Pebble Time 2',
+  );
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -138,14 +150,7 @@ async function sendEmail(env, activityName, filename, gpx, sport) {
       from:    'Pebble <onboarding@resend.dev>',
       to:      env.USER_EMAIL,
       subject: activityName,
-      text: [
-        `Your ${typeLabel} workout is attached as a GPX file.`,
-        '',
-        'Import to Strava:',
-        'https://www.strava.com/upload/select',
-        '',
-        '— Strava GPX Mailer',
-      ].join('\n'),
+      text:    lines.join('\n'),
       attachments: [{
         filename: filename,
         content:  btoa(gpx),

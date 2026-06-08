@@ -49,6 +49,6 @@ object Constants {
     const val NOTIF_CHANNEL_ID = "gps_tracking"
     const val NOTIF_ID         = 1
 
-    // GPS send throttle — send every N fixes to reduce BLE traffic
-    const val GPS_SEND_EVERY = 10
+    // GPS send throttle — send distance/speed to watch every N active fixes (~3 s at 1 s GPS rate)
+    const val GPS_SEND_EVERY = 3
 }

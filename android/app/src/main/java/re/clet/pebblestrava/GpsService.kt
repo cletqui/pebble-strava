@@ -322,11 +322,13 @@ class GpsService : Service() {
         Thread {
             try {
                 val activityName = buildActivityName()
+                val desc = buildDesc()
                 val gpx  = buildGpx(activityName)
                 val body = JSONObject().apply {
                     put("gpx",   gpx)
                     put("sport", if (sport == Constants.SPORT_CYCLING) "ride" else "run")
                     put("name",  activityName)
+                    put("desc",  desc)
                 }.toString()
 
                 val conn = URL("$url/upload").openConnection() as HttpURLConnection
@@ -359,6 +361,20 @@ class GpsService : Service() {
 
     // === GPX builder ===
 
+    private fun buildDesc(): String {
+        val durationS = if (trackpoints.size >= 2)
+            (trackpoints.last().time - trackpoints.first().time) / 1000 else 0
+        val distKm = totalDistM / 1000.0
+        val avgHr = if (hrSamples.isNotEmpty()) hrSamples.map { it.hr }.average().toInt() else 0
+        val parts = mutableListOf<String>()
+        if (distKm >= 0.01) parts.add("${"%.2f".format(distKm)} km")
+        val h = durationS / 3600; val m = (durationS % 3600) / 60; val s = durationS % 60
+        parts.add(if (h > 0) "${h}h${"%02d".format(m)}m" else "${m}m${"%02d".format(s)}s")
+        if (avgHr > 0) parts.add("avg ${avgHr} bpm")
+        parts.add("${trackpoints.size} pts · Pebble Time 2")
+        return parts.joinToString(" · ")
+    }
+
     private fun buildActivityName(): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val tod  = when { hour < 12 -> "Morning"; hour < 17 -> "Afternoon"; else -> "Evening" }
@@ -382,15 +398,17 @@ class GpsService : Service() {
             it.timeZone = TimeZone.getTimeZone("UTC")
         }
         val startTime = fmt.format(Date(trackpoints.first().time))
-        val trackType = if (sport == Constants.SPORT_CYCLING) "1" else "9"
+        // Strava recognises the string form; numeric codes ("9"/"1") import as "workout"
+        val trackType = if (sport == Constants.SPORT_CYCLING) "cycling" else "running"
+        val desc = buildDesc()
 
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"Pebble Time 2\"\n")
         sb.append("  xmlns=\"http://www.topografix.com/GPX/1/1\"\n")
         sb.append("  xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\">\n")
-        sb.append("<metadata><name>$name</name><time>$startTime</time></metadata>\n")
-        sb.append("<trk><name>$name</name><type>$trackType</type><trkseg>\n")
+        sb.append("<metadata><name>$name</name><time>$startTime</time><desc>$desc</desc></metadata>\n")
+        sb.append("<trk><name>$name</name><type>$trackType</type><desc>$desc</desc><trkseg>\n")
 
         for (tp in trackpoints) {
             val tpTime = fmt.format(Date(tp.time))
