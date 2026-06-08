@@ -4,11 +4,11 @@ A Pebble Time 2 watchapp that records running and cycling workouts with GPS and 
 
 ## How it works
 
-1. Open the Android companion app, grant permissions and disable battery optimization
+1. Open the watchapp — Core Devices auto-starts the Android GPS service
 2. Select sport on the watch — Running or Cycling
 3. Workout records elapsed time, GPS distance + speed, heart rate
 4. On stop, a GPX file with embedded HR data is POSTed to a Cloudflare Worker
-5. The Worker emails the GPX to you via Resend
+5. The Worker emails the GPX + a stats summary (distance, duration, avg HR) via Resend
 6. Open the email, import the `.gpx` into Strava — ~10 seconds
 
 ## Architecture
@@ -112,11 +112,10 @@ Credentials are stored in watch persistent flash memory and relayed to the Andro
 
 ## Usage
 
-1. Open the **Pebble Strava** companion app on your phone first (ensures GPS starts from foreground)
-2. Open the watchapp on your Pebble
-3. Wait for `W✓ HRM✓ GPS✓` on the select screen — all three within ~30s outdoors
-4. Press SELECT to start a workout
-5. UP × 2 within 3s: stop and upload; BACK × 2: cancel
+1. Open the watchapp on your Pebble — the Android companion auto-starts the GPS service via Core Devices
+2. Wait for `W✓ HRM✓ GPS✓` on the select screen — all three within ~30s outdoors
+3. Press SELECT to start a workout
+4. UP × 2 within 3s: stop and upload; BACK × 2: cancel
 
 ## Watch UI
 
