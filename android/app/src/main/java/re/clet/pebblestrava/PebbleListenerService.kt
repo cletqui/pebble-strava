@@ -61,6 +61,8 @@ class PebbleListenerService : BasePebbleListenerService() {
 
     override fun onAppClosed(watchappUUID: UUID, watch: WatchIdentifier) {
         Log.d(TAG, "onAppClosed uuid=$watchappUUID")
+        if (watchappUUID != Constants.APP_UUID) return
+        stopService(Intent(this, GpsService::class.java))
     }
 
     private fun getInt(data: PebbleDictionary, key: Int): Int? =

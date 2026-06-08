@@ -14,6 +14,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
@@ -42,12 +43,15 @@ class GpsService : Service() {
     companion object {
         private const val TAG = "GpsService"
         const val ACTION_PEBBLE_DATA = "re.clet.pebblestrava.PEBBLE_DATA"
+        const val ACTION_STOP_SELF   = "re.clet.pebblestrava.STOP_SELF"
         const val EXTRA_CMD_ACTION   = "cmd_action"
         const val EXTRA_CMD_SPORT    = "cmd_sport"
         const val EXTRA_HR_BPM       = "hr_bpm"
         const val EXTRA_CRED_URL     = "cred_url"
         const val EXTRA_CRED_SECRET  = "cred_secret"
     }
+
+    @Volatile private var isUploading = false
 
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
@@ -87,6 +91,13 @@ class GpsService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand action=${intent?.action} gpsStarted=$gpsStarted")
+
+        if (intent?.action == ACTION_STOP_SELF) {
+            if (!isUploading) stopSelf()
+            // If uploading, the finally block in uploadAsync() will call stopSelf() when done.
+            return START_NOT_STICKY
+        }
+
         if (!gpsStarted) startGps()
 
         if (intent?.action == ACTION_PEBBLE_DATA) {
@@ -282,6 +293,7 @@ class GpsService : Service() {
             return
         }
         messenger.sendUploadStatus(Constants.UPLOAD_PENDING)
+        isUploading = true
         Thread {
             try {
                 val activityName = buildActivityName()
@@ -312,6 +324,10 @@ class GpsService : Service() {
             } catch (e: Exception) {
                 messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "Network error")
                 updateNotification("Upload failed")
+            } finally {
+                isUploading = false
+                // Give the messenger's coroutine 500 ms to deliver the status before stopping.
+                Handler(Looper.getMainLooper()).postDelayed({ stopSelf() }, 500)
             }
         }.start()
     }

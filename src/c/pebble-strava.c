@@ -43,10 +43,11 @@ static bool     s_gps_fix      = false;
 static int8_t   s_worker_status = 0;  // 0=unknown 1=ok 2=error
 
 static bool      s_back_armed = false;
-static AppTimer *s_back_timer    = NULL;
+static AppTimer *s_back_timer       = NULL;
 static bool      s_up_armed   = false;
-static AppTimer *s_up_timer      = NULL;
-static AppTimer *s_workout_timer = NULL;
+static AppTimer *s_up_timer         = NULL;
+static AppTimer *s_workout_timer    = NULL;
+static AppTimer *s_upload_done_timer = NULL;
 
 // HR: configurable send interval (persist key 3), track last sent value to skip duplicates
 static int     s_hr_interval_s = 5;
@@ -131,6 +132,8 @@ static void update_workout_display(void);
 static void prv_update_gps_label(void);
 static void prv_send_creds(void);
 static void action_cancel(void);
+static void prv_reset_workout_state(void);
+static void prv_upload_done_cb(void *ctx);
 
 // === AppMessage ===
 
@@ -193,13 +196,15 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     int status = (int)t->value->int8;
     if (status == UPLOAD_SUCCESS) {
       s_state = STATE_DONE;
-      snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Saved! BACK to exit");
+      snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Saved!");
       APP_LOG(APP_LOG_LEVEL_INFO, "Upload succeeded");
       vibes_double_pulse();
+      if (s_upload_done_timer) app_timer_cancel(s_upload_done_timer);
+      s_upload_done_timer = app_timer_register(2500, prv_upload_done_cb, NULL);
     } else if (status == UPLOAD_ERROR) {
       s_state = STATE_DONE;
       Tuple *msg = dict_find(iter, MESSAGE_KEY_UPLOAD_MSG);
-      if (msg) snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Error: %.30s", msg->value->cstring);
+      if (msg) snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Error: %.28s", msg->value->cstring);
       else     snprintf(s_wk_status_buf, sizeof(s_wk_status_buf), "Upload failed");
       APP_LOG(APP_LOG_LEVEL_ERROR, "Upload error: %s", s_wk_status_buf);
       vibes_long_pulse();
@@ -414,12 +419,31 @@ static void action_cancel(void) {
   window_stack_pop(true);
 }
 
+static void prv_reset_workout_state(void) {
+  s_state          = STATE_SELECT;
+  s_elapsed_offset = 0;
+  s_distance_m     = 0;
+  s_speed_cms      = 0;
+  s_hr_bpm         = 0;
+  s_gps_fix        = false;
+}
+
+static void prv_upload_done_cb(void *ctx) {
+  s_upload_done_timer = NULL;
+  prv_reset_workout_state();
+  if (window_stack_get_top_window() == s_workout_win) window_stack_pop(true);
+}
+
 // === Click handlers — Workout window ===
 
 static void prv_wk_select(ClickRecognizerRef r, void *ctx) {
-  if (s_state == STATE_ACTIVE)    action_pause();
+  if (s_state == STATE_ACTIVE)       action_pause();
   else if (s_state == STATE_PAUSED)  action_resume();
-  else if (s_state == STATE_DONE)    window_stack_pop(true);
+  else if (s_state == STATE_DONE) {
+    if (s_upload_done_timer) { app_timer_cancel(s_upload_done_timer); s_upload_done_timer = NULL; }
+    prv_reset_workout_state();
+    window_stack_pop(true);
+  }
 }
 
 static void prv_wk_up(ClickRecognizerRef r, void *ctx) {
@@ -441,6 +465,8 @@ static void prv_wk_up(ClickRecognizerRef r, void *ctx) {
 
 static void prv_wk_back(ClickRecognizerRef r, void *ctx) {
   if (s_state == STATE_DONE) {
+    if (s_upload_done_timer) { app_timer_cancel(s_upload_done_timer); s_upload_done_timer = NULL; }
+    prv_reset_workout_state();
     window_stack_pop(true);
     return;
   }
@@ -708,6 +734,7 @@ static void prv_init(void) {
 
 static void prv_deinit(void) {
   stop_timer();
+  if (s_upload_done_timer) { app_timer_cancel(s_upload_done_timer); s_upload_done_timer = NULL; }
   window_destroy(s_select_win);
   window_destroy(s_workout_win);
   fonts_unload_custom_font(s_icon_font_14);

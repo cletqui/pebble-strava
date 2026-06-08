@@ -1,7 +1,7 @@
 {
   "name": "pebble-strava",
   "author": "clet",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
