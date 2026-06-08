@@ -53,6 +53,21 @@ class GpsService : Service() {
 
     @Volatile private var isUploading = false
 
+    // Credential retry — resends CRED_REQUEST every 3 s (up to 5 times) if watch wasn't
+    // listening on the first attempt. Cancelled as soon as creds arrive.
+    private val credRetryHandler = Handler(Looper.getMainLooper())
+    private var credRetryCount = 0
+    private val credRetryRunnable: Runnable = object : Runnable {
+        override fun run() {
+            if (credRetryCount >= 5) return
+            if ((prefs().getString(Constants.PREF_WORKER_URL, "") ?: "").isNotEmpty()) return
+            credRetryCount++
+            Log.d(TAG, "Credential request retry $credRetryCount/5")
+            messenger.sendCredRequest()
+            credRetryHandler.postDelayed(this, 3000)
+        }
+    }
+
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
 
@@ -112,18 +127,27 @@ class GpsService : Service() {
             val url    = intent.getStringExtra(EXTRA_CRED_URL)
             val secret = intent.getStringExtra(EXTRA_CRED_SECRET)
             if (url != null || secret != null) {
+                // Credentials received from watch — cancel any pending retry
+                credRetryHandler.removeCallbacks(credRetryRunnable)
+                credRetryCount = 5
                 if (url    != null) prefs().edit().putString(Constants.PREF_WORKER_URL,    url).apply()
                 if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
                 val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
                 val s = secret ?: prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
                 if (u.isNotEmpty() && s.isNotEmpty()) pingWorker(u, s)
             }
+        } else {
+            // Started by onAppOpened or MainActivity — (re-)request credentials.
+            // This fires every time the watch app opens, ensuring we request creds even
+            // when the service was already running from a previous MainActivity start.
+            requestCredentials()
         }
 
         return START_STICKY
     }
 
     override fun onDestroy() {
+        credRetryHandler.removeCallbacks(credRetryRunnable)
         stopGps()
         messenger.close()
         super.onDestroy()
@@ -261,9 +285,15 @@ class GpsService : Service() {
         val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
         val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
         if (url.isNotEmpty() && secret.isNotEmpty()) {
+            credRetryHandler.removeCallbacks(credRetryRunnable)
+            credRetryCount = 5
             pingWorker(url, secret)
         } else {
+            // Send initial request and schedule retries in case the watch wasn't listening yet
+            credRetryHandler.removeCallbacks(credRetryRunnable)
+            credRetryCount = 0
             messenger.sendCredRequest()
+            credRetryHandler.postDelayed(credRetryRunnable, 3000)
         }
     }
 
