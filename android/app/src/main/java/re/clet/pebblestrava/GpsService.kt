@@ -68,12 +68,13 @@ class GpsService : Service() {
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
 
-    private var isActive   = false
-    private var sport      = Constants.SPORT_RUNNING
-    private var totalDistM = 0.0
-    private var lastLat    = Double.NaN
-    private var lastLon    = Double.NaN
-    private var gpsTick    = 0
+    private var isActive      = false
+    private var sport         = Constants.SPORT_CYCLING
+    private var gpsTickLimit  = Constants.GPS_SEND_EVERY  // overridden per-sport at CMD_START
+    private var totalDistM    = 0.0
+    private var lastLat       = Double.NaN
+    private var lastLon       = Double.NaN
+    private var gpsTick       = 0
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(loc: Location) = handleLocation(loc)
@@ -222,8 +223,8 @@ class GpsService : Service() {
             trackpoints.add(Trackpoint(lat, lon, alt, System.currentTimeMillis()))
 
             gpsTick++
-            if (gpsTick == 1 || gpsTick >= Constants.GPS_SEND_EVERY) {
-                if (gpsTick >= Constants.GPS_SEND_EVERY) gpsTick = 0
+            if (gpsTick == 1 || gpsTick >= gpsTickLimit) {
+                if (gpsTick >= gpsTickLimit) gpsTick = 0
                 messenger.sendGps(
                     hasFix    = true,
                     distanceM = totalDistM.toInt(),
@@ -240,8 +241,10 @@ class GpsService : Service() {
     private fun handleCmd(action: Int, sportVal: Int) {
         when (action) {
             Constants.CMD_START -> {
-                sport      = sportVal
-                isActive   = true
+                sport        = sportVal
+                // Walking is a slow activity — send GPS to watch every 10 s to save BLE
+                gpsTickLimit = if (sportVal == Constants.SPORT_WALKING) 10 else Constants.GPS_SEND_EVERY
+                isActive     = true
                 totalDistM = 0.0
                 lastLat    = Double.NaN
                 lastLon    = Double.NaN
@@ -249,7 +252,7 @@ class GpsService : Service() {
                 trackpoints.clear()
                 hrSamples.clear()
                 setGpsRate(true)   // switch to high-rate GPS
-                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "hike" }}…")
+                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "walk" }}…")
             }
             Constants.CMD_STOP -> {
                 isActive = false
@@ -273,7 +276,7 @@ class GpsService : Service() {
                 isActive = true
                 gpsTick  = 0
                 setGpsRate(true)   // full rate again
-                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "hike" }}…")
+                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "walk" }}…")
             }
         }
     }
@@ -390,7 +393,7 @@ class GpsService : Service() {
         val type = when (sport) {
             Constants.SPORT_CYCLING -> "Ride"
             Constants.SPORT_RUNNING -> "Run"
-            else                    -> "Hike"
+            else                    -> "Walk"
         }
         val first = trackpoints.firstOrNull()
         val city  = if (first != null) reverseGeocode(first.lat, first.lon) else null
@@ -415,7 +418,7 @@ class GpsService : Service() {
         val trackType = when (sport) {
             Constants.SPORT_CYCLING -> "cycling"
             Constants.SPORT_RUNNING -> "running"
-            else                    -> "hiking"
+            else                    -> "walking"
         }
         val desc = buildDesc()
 

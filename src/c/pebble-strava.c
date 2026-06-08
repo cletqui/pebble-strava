@@ -13,7 +13,7 @@
 
 #define SPORT_CYCLING 0
 #define SPORT_RUNNING 1
-#define SPORT_HIKING  2
+#define SPORT_WALKING 2
 
 #define UPLOAD_PENDING 0
 #define UPLOAD_SUCCESS 1
@@ -106,17 +106,17 @@ static void fmt_dist(char *buf, size_t n, uint32_t m) {
 }
 
 static void fmt_speed(char *buf, size_t n, uint32_t cms, int sport) {
-  if (sport == SPORT_RUNNING) {
-    if (cms < 10) { snprintf(buf, n, "--:-- /km"); return; }
-    // seconds per km = 100000 / cms
-    unsigned long spk = 100000 / cms;
-    snprintf(buf, n, "%lu:%02lu /km", spk / 60, spk % 60);
-  } else {
-    // cycling and hiking: km/h = cms * 36 / 1000
+  if (sport == SPORT_CYCLING) {
+    // km/h = cms * 36 / 1000
     if (cms < 10) { snprintf(buf, n, "0.0 km/h"); return; }
     unsigned long i = (cms * 36) / 1000;
     unsigned long d = ((cms * 36) % 1000) / 10;
     snprintf(buf, n, "%lu.%02lu km/h", i, d);
+  } else {
+    // running and walking: min/km pace = 100000 / cms seconds per km
+    if (cms < 10) { snprintf(buf, n, "--:-- /km"); return; }
+    unsigned long spk = 100000 / cms;
+    snprintf(buf, n, "%lu:%02lu /km", spk / 60, spk % 60);
   }
 }
 
@@ -307,17 +307,31 @@ static void update_workout_display(void) {
   text_layer_set_text(s_wk_status,   s_wk_status_buf);
 }
 
-// === Workout timer (1 s) — display refresh every tick, HR send every s_hr_interval_s ticks ===
+// === Workout timer (1 s) — minimal per-tick redraws for power efficiency ===
+// Only the elapsed time changes every second; dist/speed/status are refreshed
+// by the GPS inbox handler when new data arrives. HR refreshes on its own interval.
 
 static void prv_tick(void *ctx) {
   if (s_state != STATE_ACTIVE) return;
+
+  // HR: read and send on its interval; redraw only if the value changed.
   s_hr_tick_count++;
   if (s_hr_tick_count >= s_hr_interval_s) {
     s_hr_tick_count = 0;
+    int16_t prev_hr = s_hr_bpm;
     prv_read_hr();
     prv_send_hr();
+    if (s_hr_bpm != prev_hr) {
+      if (s_hr_bpm > 0) snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "%d bpm", s_hr_bpm);
+      else              snprintf(s_wk_bpm_buf, sizeof(s_wk_bpm_buf), "-- bpm");
+      text_layer_set_text(s_wk_bpm, s_wk_bpm_buf);
+    }
   }
-  update_workout_display();
+
+  // Elapsed time is the only field that changes every second — redraw it alone.
+  fmt_time(s_wk_time_buf, sizeof(s_wk_time_buf), get_elapsed());
+  text_layer_set_text(s_wk_time, s_wk_time_buf);
+
   s_workout_timer = app_timer_register(1000, prv_tick, NULL);
 }
 
@@ -494,18 +508,18 @@ static void prv_wk_click_config(void *ctx) {
 // === Click handlers — Sport select window ===
 
 static void prv_update_sport_label(void) {
-  static const char *labels[] = {"CYCLING", "RUNNING", "HIKING"};
+  static const char *labels[] = {"CYCLING", "RUNNING", "WALKING"};
   snprintf(s_sel_sport_buf, sizeof(s_sel_sport_buf), "%s", labels[s_sport]);
   text_layer_set_text(s_sel_sport, s_sel_sport_buf);
 }
 
 static void prv_sel_up(ClickRecognizerRef r, void *ctx) {
-  s_sport = (s_sport == 0) ? SPORT_HIKING : s_sport - 1;
+  s_sport = (s_sport == 0) ? SPORT_WALKING : s_sport - 1;
   prv_update_sport_label();
 }
 
 static void prv_sel_down(ClickRecognizerRef r, void *ctx) {
-  s_sport = (s_sport == SPORT_HIKING) ? 0 : s_sport + 1;
+  s_sport = (s_sport == SPORT_WALKING) ? 0 : s_sport + 1;
   prv_update_sport_label();
 }
 

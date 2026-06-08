@@ -29,7 +29,7 @@ object Constants {
     // CMD_SPORT values (order must match the watch C defines)
     const val SPORT_CYCLING = 0
     const val SPORT_RUNNING = 1
-    const val SPORT_HIKING  = 2
+    const val SPORT_WALKING = 2
 
     // UPLOAD_STATUS values
     const val UPLOAD_PENDING = 0
