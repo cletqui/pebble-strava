@@ -26,9 +26,10 @@ object Constants {
     const val CMD_PAUSE  = 2
     const val CMD_RESUME = 3
 
-    // CMD_SPORT values
-    const val SPORT_RUNNING = 0
-    const val SPORT_CYCLING = 1
+    // CMD_SPORT values (order must match the watch C defines)
+    const val SPORT_CYCLING = 0
+    const val SPORT_RUNNING = 1
+    const val SPORT_HIKING  = 2
 
     // UPLOAD_STATUS values
     const val UPLOAD_PENDING = 0
@@ -49,6 +50,6 @@ object Constants {
     const val NOTIF_CHANNEL_ID = "gps_tracking"
     const val NOTIF_ID         = 1
 
-    // GPS send throttle — send distance/speed to watch every N active fixes (~3 s at 1 s GPS rate)
-    const val GPS_SEND_EVERY = 3
+    // GPS send throttle — send distance/speed to watch every N active fixes (~5 s at 1 s GPS rate)
+    const val GPS_SEND_EVERY = 5
 }

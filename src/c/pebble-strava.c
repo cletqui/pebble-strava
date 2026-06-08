@@ -11,8 +11,9 @@
 #define PERSIST_KEY_SECRET      2
 #define PERSIST_KEY_HR_INTERVAL 3
 
-#define SPORT_RUNNING 0
-#define SPORT_CYCLING 1
+#define SPORT_CYCLING 0
+#define SPORT_RUNNING 1
+#define SPORT_HIKING  2
 
 #define UPLOAD_PENDING 0
 #define UPLOAD_SUCCESS 1
@@ -29,7 +30,7 @@ typedef enum {
 } AppState;
 
 static AppState s_state = STATE_SELECT;
-static int      s_sport = SPORT_RUNNING;
+static int      s_sport = SPORT_CYCLING;
 
 // Elapsed time: offset accumulates completed active segments; seg_start is the
 // wall-clock time the current segment began. get_elapsed() combines both live.
@@ -105,19 +106,17 @@ static void fmt_dist(char *buf, size_t n, uint32_t m) {
 }
 
 static void fmt_speed(char *buf, size_t n, uint32_t cms, int sport) {
-  if (cms < 10) {
-    snprintf(buf, n, sport == SPORT_CYCLING ? "0.0 km/h" : "--:-- /km");
-    return;
-  }
-  if (sport == SPORT_CYCLING) {
-    // cms * 3600 / 100000 = cms * 36 / 1000
-    unsigned long i = (cms * 36) / 1000;
-    unsigned long d = ((cms * 36) % 1000) / 10;
-    snprintf(buf, n, "%lu.%02lu km/h", i, d);
-  } else {
+  if (sport == SPORT_RUNNING) {
+    if (cms < 10) { snprintf(buf, n, "--:-- /km"); return; }
     // seconds per km = 100000 / cms
     unsigned long spk = 100000 / cms;
     snprintf(buf, n, "%lu:%02lu /km", spk / 60, spk % 60);
+  } else {
+    // cycling and hiking: km/h = cms * 36 / 1000
+    if (cms < 10) { snprintf(buf, n, "0.0 km/h"); return; }
+    unsigned long i = (cms * 36) / 1000;
+    unsigned long d = ((cms * 36) % 1000) / 10;
+    snprintf(buf, n, "%lu.%02lu km/h", i, d);
   }
 }
 
@@ -495,18 +494,18 @@ static void prv_wk_click_config(void *ctx) {
 // === Click handlers — Sport select window ===
 
 static void prv_update_sport_label(void) {
-  snprintf(s_sel_sport_buf, sizeof(s_sel_sport_buf),
-           s_sport == SPORT_RUNNING ? "RUNNING" : "CYCLING");
+  static const char *labels[] = {"CYCLING", "RUNNING", "HIKING"};
+  snprintf(s_sel_sport_buf, sizeof(s_sel_sport_buf), "%s", labels[s_sport]);
   text_layer_set_text(s_sel_sport, s_sel_sport_buf);
 }
 
 static void prv_sel_up(ClickRecognizerRef r, void *ctx) {
-  s_sport = SPORT_RUNNING;
+  s_sport = (s_sport == 0) ? SPORT_HIKING : s_sport - 1;
   prv_update_sport_label();
 }
 
 static void prv_sel_down(ClickRecognizerRef r, void *ctx) {
-  s_sport = SPORT_CYCLING;
+  s_sport = (s_sport == SPORT_HIKING) ? 0 : s_sport + 1;
   prv_update_sport_label();
 }
 

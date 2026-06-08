@@ -210,6 +210,9 @@ class GpsService : Service() {
             .apply()
 
         if (isActive) {
+            // Skip imprecise fixes when recording — they cause visible jumps in the track
+            if (loc.hasAccuracy() && loc.accuracy > 25f) return
+
             if (!lastLat.isNaN()) {
                 val d = haversine(lastLat, lastLon, lat, lon)
                 if (d < 150) totalDistM += d   // ignore GPS jumps > 150 m
@@ -246,7 +249,7 @@ class GpsService : Service() {
                 trackpoints.clear()
                 hrSamples.clear()
                 setGpsRate(true)   // switch to high-rate GPS
-                updateNotification("Recording ${if (sport == Constants.SPORT_CYCLING) "ride" else "run"}…")
+                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "hike" }}…")
             }
             Constants.CMD_STOP -> {
                 isActive = false
@@ -270,7 +273,7 @@ class GpsService : Service() {
                 isActive = true
                 gpsTick  = 0
                 setGpsRate(true)   // full rate again
-                updateNotification("Recording ${if (sport == Constants.SPORT_CYCLING) "ride" else "run"}…")
+                updateNotification("Recording ${when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "hike" }}…")
             }
         }
     }
@@ -362,8 +365,15 @@ class GpsService : Service() {
     // === GPX builder ===
 
     private fun buildDesc(): String {
-        val durationS = if (trackpoints.size >= 2)
-            (trackpoints.last().time - trackpoints.first().time) / 1000 else 0L
+        // Sum only consecutive gaps ≤ 10 s — gaps larger than that are pauses and excluded
+        val durationS = if (trackpoints.size >= 2) {
+            var ms = 0L
+            for (i in 1 until trackpoints.size) {
+                val gap = trackpoints[i].time - trackpoints[i - 1].time
+                if (gap <= 10_000L) ms += gap
+            }
+            ms / 1000
+        } else 0L
         val distKm = totalDistM / 1000.0
         val avgHr = if (hrSamples.isNotEmpty()) hrSamples.map { it.hr }.average().toInt() else 0
         val parts = mutableListOf<String>()
@@ -377,7 +387,11 @@ class GpsService : Service() {
     private fun buildActivityName(): String {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val tod  = when { hour < 12 -> "Morning"; hour < 17 -> "Afternoon"; else -> "Evening" }
-        val type = if (sport == Constants.SPORT_CYCLING) "Ride" else "Run"
+        val type = when (sport) {
+            Constants.SPORT_CYCLING -> "Ride"
+            Constants.SPORT_RUNNING -> "Run"
+            else                    -> "Hike"
+        }
         val first = trackpoints.firstOrNull()
         val city  = if (first != null) reverseGeocode(first.lat, first.lon) else null
         return "${if (city != null) "$city " else ""}$tod $type"
@@ -398,7 +412,11 @@ class GpsService : Service() {
         }
         val startTime = fmt.format(Date(trackpoints.first().time))
         // Strava recognises the string form; numeric codes ("9"/"1") import as "workout"
-        val trackType = if (sport == Constants.SPORT_CYCLING) "cycling" else "running"
+        val trackType = when (sport) {
+            Constants.SPORT_CYCLING -> "cycling"
+            Constants.SPORT_RUNNING -> "running"
+            else                    -> "hiking"
+        }
         val desc = buildDesc()
 
         val sb = StringBuilder()
