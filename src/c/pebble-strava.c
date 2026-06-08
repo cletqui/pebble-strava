@@ -47,7 +47,6 @@ static bool      s_back_armed = false;
 static AppTimer *s_back_timer       = NULL;
 static bool      s_up_armed   = false;
 static AppTimer *s_up_timer         = NULL;
-static AppTimer *s_workout_timer    = NULL;
 static AppTimer *s_upload_done_timer = NULL;
 
 // HR: configurable send interval (persist key 3), track last sent value to skip duplicates
@@ -307,11 +306,11 @@ static void update_workout_display(void) {
   text_layer_set_text(s_wk_status,   s_wk_status_buf);
 }
 
-// === Workout timer (1 s) — minimal per-tick redraws for power efficiency ===
+// === Workout tick (1 s via TickTimerService) — minimal redraws for power efficiency ===
 // Only the elapsed time changes every second; dist/speed/status are refreshed
 // by the GPS inbox handler when new data arrives. HR refreshes on its own interval.
 
-static void prv_tick(void *ctx) {
+static void prv_tick(struct tm *tick_time, TimeUnits units_changed) {
   if (s_state != STATE_ACTIVE) return;
 
   // HR: read and send on its interval; redraw only if the value changed.
@@ -331,20 +330,14 @@ static void prv_tick(void *ctx) {
   // Elapsed time is the only field that changes every second — redraw it alone.
   fmt_time(s_wk_time_buf, sizeof(s_wk_time_buf), get_elapsed());
   text_layer_set_text(s_wk_time, s_wk_time_buf);
-
-  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
 }
 
 static void start_timer(void) {
-  if (s_workout_timer) app_timer_cancel(s_workout_timer);
-  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
+  tick_timer_service_subscribe(SECOND_UNIT, prv_tick);
 }
 
 static void stop_timer(void) {
-  if (s_workout_timer) {
-    app_timer_cancel(s_workout_timer);
-    s_workout_timer = NULL;
-  }
+  tick_timer_service_unsubscribe();
 }
 
 // === Workout actions ===
