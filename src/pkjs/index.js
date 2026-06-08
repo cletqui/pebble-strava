@@ -178,26 +178,15 @@ function htmlEscape(s) {
 }
 
 Pebble.addEventListener('showConfiguration', function() {
-  if (WORKER_URL) {
-    Pebble.openURL(WORKER_URL + '/config' +
-      '?url='         + encodeURIComponent(WORKER_URL) +
-      '&secret='      + encodeURIComponent(WORKER_SECRET) +
-      '&hrCycling='   + HR_CYCLING +
-      '&hrRunning='   + HR_RUNNING +
-      '&hrWalking='   + HR_WALKING +
-      '&gpsAccuracy=' + GPS_ACCURACY +
-      '&units='       + UNITS);
-  } else {
-    var html = CONFIG_HTML
-      .replace('__URL__',          htmlEscape(WORKER_URL))
-      .replace('__SECRET__',       htmlEscape(WORKER_SECRET))
-      .replace('__HR_CYCLING__',   String(HR_CYCLING))
-      .replace('__HR_RUNNING__',   String(HR_RUNNING))
-      .replace('__HR_WALKING__',   String(HR_WALKING))
-      .replace('__GPS_ACCURACY__', String(GPS_ACCURACY))
-      .replace('__UNITS__',        String(UNITS));
-    Pebble.openURL('data:text/html,' + encodeURIComponent(html));
-  }
+  var html = CONFIG_HTML
+    .replace('__URL__',          htmlEscape(WORKER_URL))
+    .replace('__SECRET__',       htmlEscape(WORKER_SECRET))
+    .replace('__HR_CYCLING__',   String(HR_CYCLING))
+    .replace('__HR_RUNNING__',   String(HR_RUNNING))
+    .replace('__HR_WALKING__',   String(HR_WALKING))
+    .replace('__GPS_ACCURACY__', String(GPS_ACCURACY))
+    .replace('__UNITS__',        String(UNITS));
+  Pebble.openURL('data:text/html,' + encodeURIComponent(html));
 });
 
 Pebble.addEventListener('webviewclosed', function(e) {
