@@ -9,8 +9,8 @@ android {
 
     defaultConfig {
         applicationId "re.clet.pebblestrava"
-        minSdk 21
-        targetSdk 33
+        minSdk 24
+        targetSdk 34
         versionCode 1
         versionName "1.0.0"
     }
@@ -34,9 +34,19 @@ android {
     }
 }
 
+configurations.all {
+    // PebbleKit2 1.1.0 transitively pulls androidx.core 1.17 (needs SDK 36 + AGP 8.9).
+    // Pin to 1.13.x which is the last version compatible with compileSdk 34 + AGP 8.2.
+    resolutionStrategy {
+        force 'androidx.core:core:1.13.1'
+        force 'androidx.core:core-ktx:1.13.1'
+    }
+}
+
 dependencies {
-    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'com.getpebble:pebblekit:4.0.1'
+    implementation 'io.rebble.pebblekit2:client:1.0.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }

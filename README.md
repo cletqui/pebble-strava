@@ -4,7 +4,7 @@ A Pebble Time 2 watchapp that records running and cycling workouts with GPS and 
 
 ## How it works
 
-1. Install the Android companion app (GPS fix for Android 10+)
+1. Open the Android companion app, grant permissions and disable battery optimization
 2. Select sport on the watch — Running or Cycling
 3. Workout records elapsed time, GPS distance + speed, heart rate
 4. On stop, a GPX file with embedded HR data is POSTed to a Cloudflare Worker
@@ -17,30 +17,38 @@ A Pebble Time 2 watchapp that records running and cycling workouts with GPS and 
 Watch (C)                        Android companion (Kotlin)
 ──────────────────────────────────────────────────────────────
 Sport select + workout UI        ForegroundService + LocationManager GPS
-Wall-clock elapsed tracking      Haversine distance accumulation
-HRM poll every 5s → send HR  →  HR samples stored with timestamps
-                             ←  GPS distance + speed + fix status
-UP×2 → CMD_STOP              →  Build GPX with correlated HR data
-                             →  POST to Cloudflare Worker
-                             ←  UPLOAD_STATUS (success / error)
+Live elapsed timer (1s tick)     Adaptive GPS rate: 1s/1m active, 5s/10m idle
+HRM poll → send HR on change  →  HR samples stored with timestamps
+                              ←  GPS distance + speed + fix status (on change only)
+UP×2 → CMD_STOP               →  Build GPX with correlated HR data
+                              →  POST to Cloudflare Worker
+                              ←  UPLOAD_STATUS (success / error)
 
 Phone (PebbleKit JS — config only)
 ───────────────────────────────────
-Settings WebView (Worker URL + secret)
+Settings WebView (Worker URL + secret + HR interval)
 Credential relay: phone localStorage ↔ watch flash
+Worker status ping on JS ready
+HR interval setting → watch persist
 
 Cloudflare Worker
 ─────────────────
 GET  /ping              Bearer auth check (watch status indicator)
-GET  /config            Settings page (pre-filled from query params)
+GET  /config            Settings page (Worker URL, secret, HR interval)
 POST /upload            Receive GPX → send email via Resend
 ```
+
+### Companion SDK
+
+The Android companion uses **PebbleKit2** (`io.rebble.pebblekit2:client:1.0.0` from JitPack), required for **Core Devices** (`coredevices.coreapp`) — the Rebble replacement for the classic Pebble Android app.
+
+Core Devices binds to `PebbleListenerService` (a `BasePebbleListenerService`) when the watchapp is open, providing `onAppOpened`, `onMessageReceived`, `onAppClosed`. Outbound messages use `DefaultPebbleSender.sendDataToPebble()` (coroutine, returns `TransmissionResult`).
 
 ## Requirements
 
 - Pebble Time 2 (emery platform)
-- Android phone with the official Pebble app
-- **Pebble Strava companion APK** (required for GPS on Android 10+)
+- Android phone with **Core Devices** (`coredevices.coreapp`) — the Rebble Pebble app
+- **Pebble Strava companion APK** (required for GPS)
 - A Cloudflare Worker (free tier) + Resend account (free tier, 3k emails/month)
 
 ## Setup
@@ -64,75 +72,111 @@ Requires the [Pebble SDK](https://developer.rebble.io/developer.pebble.com/sdk/i
 
 ```sh
 pebble build
-pebble install --phone <phone-ip>   # enable Developer Mode in the Pebble app
+```
+
+Install via file manager — `pebble install --phone <ip>` does not work with Core Devices:
+
+```sh
+adb push build/pebble-strava.pbw /sdcard/Download/
+# then open Files on phone → tap the PBW → open with Core Devices
 ```
 
 ### 3. Install the Android companion app
 
-Download the latest `pebble-strava-companion-*.apk` from [GitHub Releases](../../releases).
+Build or download from [GitHub Releases](../../releases):
 
-1. Enable **Install unknown apps** for your browser or file manager in Android Settings → Apps
-2. Open the APK and install
-3. Open **Pebble Strava** → tap **Grant Location Permissions** → choose **Allow all the time**
-4. Tap **Start GPS Service**
+```sh
+cd android
+# Requires Java 21 (SDKMAN: sdk use java 21.0.5-tem) and Android SDK
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-The foreground service starts automatically when your phone boots.
+First-time setup (do this **before** opening the watchapp):
+
+1. Open **Pebble Strava** on your phone
+2. Tap **Grant Location Permissions** → choose **Allow all the time**
+3. Tap **Disable Battery Optimization** → choose **Allow**  
+   ⚠ Required on Android 12+. Without it, Android blocks GPS for foreground services started from a background context (Core Devices binding). The app will register GPS but never receive fixes.
+4. The GPS service starts automatically once both steps are done.
+
+The service auto-starts on device reboot.
 
 ### 4. Configure credentials
 
-Long-press **Strava GPX Mailer** in the Pebble app → tap the ⚙ gear icon → enter your Worker URL and Upload Secret → **Save & Close**.
+Long-press **Strava GPX Mailer** in Core Devices → tap the ⚙ gear icon → enter your Worker URL and Upload Secret → **Save & Close**.
 
-Credentials are stored in watch persistent flash memory. The Android companion retrieves them automatically via AppMessage on first launch — no separate configuration needed.
+You can also adjust the **Heart Rate Send Interval** (5 / 10 / 15 / 30s) here. Lower values give smoother HR data; higher values extend watch battery life.
+
+Credentials are stored in watch persistent flash memory and relayed to the Android companion automatically — no separate Android configuration needed.
+
+## Usage
+
+1. Open the **Pebble Strava** companion app on your phone first (ensures GPS starts from foreground)
+2. Open the watchapp on your Pebble
+3. Wait for `W✓ HRM✓ GPS✓` on the select screen — all three within ~30s outdoors
+4. Press SELECT to start a workout
+5. UP × 2 within 3s: stop and upload; BACK × 2: cancel
 
 ## Watch UI
 
-**Sport select screen** — UP: Running, DOWN: Cycling, SELECT: start.  
-Status line at the bottom shows `W✓/!/? HRM✓/-- GPS✓/--` before starting.
+**Sport select screen** — UP: Running, DOWN: Cycling, SELECT: start.
+
+Status line at the bottom:
+- `Open companion app` — shown when the companion hasn't responded yet
+- `W✓/!/? HRM✓/-- GPS✓/--` — once connected: Worker reachable, HRM available, GPS fix
 
 **Workout screen**
-- Large (white/gray): elapsed time — dims to gray when paused
+- Large (white): elapsed time, ticking every second — dims to gray when paused
 - Medium (white): distance in km
 - Medium (orange): speed km/h (cycling) or pace min/km (running)
 - Medium (white): heart rate in bpm
-- Small (gray): HRM ✓ / GPS ✓ status row
+- Small (gray): `HRM ✓ GPS ✓` status row
 - SELECT: pause / resume
 - UP × 2 within 3s: stop and upload
 - BACK × 2 within 3s: cancel (discard workout)
 
-After stopping, upload status is shown on the workout screen. A double vibration means the email was sent successfully.
+After stopping, upload status is shown on the workout screen. Double vibration = email sent.
 
 ## AppMessage keys
 
-| Key | Direction | Type | Description |
-|-----|-----------|------|-------------|
-| `CMD_ACTION` | watch→companion | int8 | 0=start, 1=stop, 2=pause, 3=resume |
-| `CMD_SPORT` | watch→companion | int8 | 0=running, 1=cycling |
-| `HR_BPM` | watch→companion | int16 | Heart rate in bpm |
-| `GPS_DISTANCE` | companion→watch | int32 | Total distance in meters |
-| `GPS_SPEED` | companion→watch | int32 | Current speed in cm/s |
-| `GPS_HAS_FIX` | companion→watch | int8 | 1 if GPS fix acquired |
-| `UPLOAD_STATUS` | companion→watch | int8 | 0=uploading, 1=success, 2=error |
-| `UPLOAD_MSG` | companion→watch | cstring | Status / error message |
-| `CRED_REQUEST` | companion→watch | int8 | Companion requests credentials |
-| `CRED_URL` | watch↔PKJS | cstring | Worker URL (persisted to watch flash) |
-| `CRED_SECRET` | watch↔PKJS | cstring | Upload secret (persisted to watch flash) |
-| `WORKER_STATUS` | companion→watch | int8 | 1=reachable, 2=error |
+Auto-generated by the Pebble SDK starting at base **10000** (array format in `package.json`).
+
+| Key | Value | Direction | Type | Description |
+|-----|-------|-----------|------|-------------|
+| `CMD_ACTION` | 10000 | watch→companion | int8 | 0=start 1=stop 2=pause 3=resume |
+| `CMD_SPORT` | 10001 | watch→companion | int8 | 0=running 1=cycling |
+| `HR_BPM` | 10002 | watch→companion | int16 | Heart rate in bpm |
+| `GPS_DISTANCE` | 10003 | companion→watch | int32 | Total distance in meters |
+| `GPS_SPEED` | 10004 | companion→watch | int32 | Speed in cm/s |
+| `GPS_HAS_FIX` | 10005 | companion→watch | int8 | 1=fix acquired |
+| `UPLOAD_STATUS` | 10006 | companion→watch | int8 | 0=pending 1=success 2=error |
+| `UPLOAD_MSG` | 10007 | companion→watch | cstring | Status/error text |
+| `CRED_REQUEST` | 10008 | companion→watch | int8 | Request credentials from watch |
+| `CRED_URL` | 10009 | watch↔PKJS | cstring | Worker URL |
+| `CRED_SECRET` | 10010 | watch↔PKJS | cstring | Upload secret |
+| `WORKER_STATUS` | 10011 | companion→watch | int8 | 1=ok 2=error |
+| `SETTINGS_HR_INTERVAL` | 10012 | PKJS→watch | int8 | HR send interval in seconds (5/10/15/30) |
+
+> `Constants.kt` must use 10000–10012. `DefaultPebbleSender` passes keys verbatim — no offset is applied by the library. After any `messageKeys` change in `package.json`, run `pebble clean && pebble build` (incremental build won't regenerate `message_keys.auto.c`).
 
 ## Project layout
 
 ```
 src/c/pebble-strava.c      Watch app: UI, HRM, state machine, AppMessage
-src/pkjs/index.js          Phone JS: config page + credential relay only
-resources/icons.ttf        Font subset: ▲ ▶ ▼ ✓ + ASCII (DejaVu Sans)
-package.json               App metadata, UUID, capabilities, message keys
+src/pkjs/index.js          Phone JS: config page + credential relay + worker ping + HR interval
+resources/icons.ttf        Font subset: ▲ ▶ ▼ ✓ ◀ ■ + ASCII
+package.json               App metadata, UUID, capabilities, messageKeys, companionApp
 worker/src/index.js        Cloudflare Worker: /ping, /config, /upload → Resend
 worker/wrangler.toml       Worker config
 android/                   GPS companion Android app (Kotlin)
   app/src/main/java/re/clet/pebblestrava/
-    GpsService.kt          Foreground service: GPS, GPX, upload
-    MainActivity.kt        Permission setup, service control
-    PebbleMessenger.kt     PebbleKit send helpers
-    Constants.kt           AppMessage key indices + app UUID
+    GpsService.kt          Foreground service: adaptive GPS, trackpoints, GPX build, upload
+    PebbleListenerService.kt  BasePebbleListenerService: receives watch commands
+    PebbleMessenger.kt     DefaultPebbleSender wrapper: sends GPS/status/creds to watch
+    MainActivity.kt        Permission setup, battery opt, GPS status display
+    BootReceiver.kt        Auto-start service after reboot
+    Constants.kt           AppMessage keys (10000–10012) + prefs keys + app UUID
 ```
 
 ## Building & debugging
@@ -140,14 +184,17 @@ android/                   GPS companion Android app (Kotlin)
 ```sh
 # Watch app
 pebble build
-pebble install --emulator emery
-pebble logs --emulator emery        # APP_LOG output
-pebble logs --phone <ip>            # real watch
+pebble logs --phone <ip>            # real watch logs
+
+# After any package.json messageKeys change:
+pebble clean && pebble build
 
 # Android companion
 cd android
-./gradlew assembleDebug             # outputs android/app/build/outputs/apk/debug/
-./gradlew assembleRelease           # outputs release APK
+# Requires: Java 21 (SDKMAN), Android SDK
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb logcat | grep -E "(GpsService|PebbleListener|PebbleMessenger)"
 ```
 
 ### Emulator clean (if install fails)
@@ -165,9 +212,15 @@ rm -rf ~/.local/share/pebble-sdk/4.9.169/emery/qemu_spi_flash.bin \
 
 ## Known limitations
 
-### GPS on Android 10+ (solved by companion app)
+### `pebble install --phone` doesn't work with Core Devices
 
-`navigator.geolocation` in the official Pebble APK silently drops callbacks on Android 10+ because the old APK does not declare `ACCESS_BACKGROUND_LOCATION`. The Android companion app declares this permission and uses the native LocationManager in a foreground service, which works correctly on Android 10–16.
+Core Devices does not open port 9000. Install via file manager only.
+
+### Battery optimization must be disabled (Android 12+)
+
+Android 12 blocks location for foreground services started from the background. Core Devices binding to `PebbleListenerService` is a background context — without the battery optimization exemption, GPS registers but delivers at most 1–2 cached fixes then stops permanently.
+
+Logcat signature: `W ActivityManager: Foreground service started from background can not have location/camera/microphone access`.
 
 ### Strava direct upload
 
@@ -179,10 +232,7 @@ Strava's upload API (`activity:write`) requires a paid subscription. The email +
 Attractive because Garmin auto-syncs to Strava, Komoot, and GeoVelo. Rejected: no official API, the reverse-engineered flow requires a 5-step OAuth1/OAuth2 chain, 10–20s anti-bot delays, and a consumer key fetched from a public S3 bucket that can change without notice.
 
 ### Runalyze
-Viable alternative. Free documented public GPX upload API (Personal API, token-based, single POST). Switching the Worker from email to Runalyze POST is a ~30-minute job. Good option if Strava stops mattering or for self-hosted deployments.
+Viable alternative. Free documented public GPX upload API (Personal API, token-based, single POST). Switching the Worker from email to Runalyze POST is a ~30-minute job.
 
 ### Gadgetbridge
-[Gadgetbridge](https://gadgetbridge.org/) is an open-source replacement for the Pebble Android app that supports modern Android location APIs. GPS would work with Gadgetbridge without a companion app. However, Gadgetbridge is a full Pebble app replacement — pairing is not always reliable on Pebble Time 2 and it adds management overhead. The native companion app is the preferred path.
-
-### Komoot / GeoVelo
-No public activity upload API. Only reachable via Garmin integrations.
+[Gadgetbridge](https://gadgetbridge.org/) supports modern Android location APIs natively and doesn't need a companion app. However, pairing reliability on Pebble Time 2 varies and it adds management overhead.

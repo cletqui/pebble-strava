@@ -7,8 +7,9 @@
 #define CMD_PAUSE   2
 #define CMD_RESUME  3
 
-#define PERSIST_KEY_URL    1
-#define PERSIST_KEY_SECRET 2
+#define PERSIST_KEY_URL         1
+#define PERSIST_KEY_SECRET      2
+#define PERSIST_KEY_HR_INTERVAL 3
 
 #define SPORT_RUNNING 0
 #define SPORT_CYCLING 1
@@ -46,6 +47,11 @@ static AppTimer *s_back_timer    = NULL;
 static bool      s_up_armed   = false;
 static AppTimer *s_up_timer      = NULL;
 static AppTimer *s_workout_timer = NULL;
+
+// HR: configurable send interval (persist key 3), track last sent value to skip duplicates
+static int     s_hr_interval_s = 5;
+static int     s_hr_tick_count = 0;
+static int16_t s_last_sent_hr  = -1;
 
 // === Windows & layers ===
 
@@ -172,6 +178,16 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     if (window_stack_get_top_window() == s_select_win && s_sel_gps) prv_update_gps_label();
   }
 
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL);
+  if (t) {
+    int iv = (int)t->value->int8;
+    if (iv >= 5 && iv <= 30) {
+      s_hr_interval_s = iv;
+      s_hr_tick_count = 0;
+      persist_write_int(PERSIST_KEY_HR_INTERVAL, iv);
+    }
+  }
+
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
   if (t) {
     int status = (int)t->value->int8;
@@ -226,7 +242,8 @@ static void prv_send_cmd(int action) {
 }
 
 static void prv_send_hr(void) {
-  if (s_hr_bpm <= 0) return;
+  if (s_hr_bpm <= 0 || s_hr_bpm == s_last_sent_hr) return;
+  s_last_sent_hr = s_hr_bpm;
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
   dict_write_int16(iter, MESSAGE_KEY_HR_BPM, s_hr_bpm);
@@ -286,19 +303,23 @@ static void update_workout_display(void) {
   text_layer_set_text(s_wk_status,   s_wk_status_buf);
 }
 
-// === Workout timer (5 s) — HR read/send + display refresh ===
+// === Workout timer (1 s) — display refresh every tick, HR send every s_hr_interval_s ticks ===
 
 static void prv_tick(void *ctx) {
   if (s_state != STATE_ACTIVE) return;
-  prv_read_hr();
-  prv_send_hr();
+  s_hr_tick_count++;
+  if (s_hr_tick_count >= s_hr_interval_s) {
+    s_hr_tick_count = 0;
+    prv_read_hr();
+    prv_send_hr();
+  }
   update_workout_display();
-  s_workout_timer = app_timer_register(5000, prv_tick, NULL);
+  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
 }
 
 static void start_timer(void) {
   if (s_workout_timer) app_timer_cancel(s_workout_timer);
-  s_workout_timer = app_timer_register(5000, prv_tick, NULL);
+  s_workout_timer = app_timer_register(1000, prv_tick, NULL);
 }
 
 static void stop_timer(void) {
@@ -318,6 +339,8 @@ static void action_start(void) {
   s_speed_cms      = 0;
   s_hr_bpm         = 0;
   s_gps_fix        = false;
+  s_hr_tick_count  = 0;
+  s_last_sent_hr   = -1;
 
   prv_read_hr();
   prv_send_cmd(CMD_START);
@@ -340,8 +363,9 @@ static void action_pause(void) {
 
 static void action_resume(void) {
   APP_LOG(APP_LOG_LEVEL_INFO, "Resumed");
-  s_seg_start = time(NULL);  // start a new active segment
-  s_state     = STATE_ACTIVE;
+  s_seg_start     = time(NULL);
+  s_state         = STATE_ACTIVE;
+  s_hr_tick_count = 0;
   prv_send_cmd(CMD_RESUME);
   start_timer();
   update_workout_display();
@@ -473,6 +497,14 @@ static void prv_sel_click_config(void *ctx) {
 // === Sport select window ===
 
 static void prv_update_gps_label(void) {
+  if (s_worker_status == 0 && !s_gps_fix) {
+    // Companion app hasn't responded yet — guide the user
+    snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "Open companion app");
+    text_layer_set_text(s_sel_gps, s_sel_gps_buf);
+    text_layer_set_text_color(s_sel_gps, GColorDarkGray);
+    return;
+  }
+
   time_t now = time(NULL);
   HealthServiceAccessibilityMask mask =
     health_service_metric_accessible(HealthMetricHeartRateBPM, now, now);
@@ -649,6 +681,8 @@ static void prv_workout_unload(Window *win) {
 
 static void prv_init(void) {
   s_icon_font_14 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ICONS_14));
+  int stored_iv = persist_read_int(PERSIST_KEY_HR_INTERVAL);
+  if (stored_iv >= 5 && stored_iv <= 30) s_hr_interval_s = stored_iv;
 
   s_select_win = window_create();
   window_set_background_color(s_select_win, GColorBlack);
@@ -666,7 +700,7 @@ static void prv_init(void) {
     .unload = prv_workout_unload,
   });
 
-  app_message_open(512, 512);
+  app_message_open(256, 256);
   app_message_register_inbox_received(prv_inbox_received);
 
   window_stack_push(s_select_win, false);

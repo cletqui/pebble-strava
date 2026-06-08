@@ -2,90 +2,138 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#111111"
-    android:padding="24dp">
+    android:background="#0F0F0F"
+    android:padding="20dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:text="Pebble Strava"
-            android:textColor="#FF6600"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="28dp"
-            android:text="GPS companion for Pebble Time 2"
-            android:textColor="#888888"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/tv_status"
+        <!-- Header -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            android:background="#1E1E1E"
-            android:padding="14dp"
-            android:textColor="#EEEEEE"
-            android:textSize="14sp"
-            android:lineSpacingMultiplier="1.4"
-            android:fontFamily="monospace" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
 
-        <TextView
-            android:id="@+id/tv_worker"
+            <View
+                android:layout_width="4dp"
+                android:layout_height="28dp"
+                android:background="#FC4C02"
+                android:layout_marginEnd="12dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pebble Strava"
+                    android:textColor="#FC4C02"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="GPS companion for Pebble Time 2"
+                    android:textColor="#666666"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Status card -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            android:background="#1E1E1E"
-            android:padding="14dp"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp" />
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="16dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="12dp">
 
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:lineSpacingMultiplier="1.6" />
+
+            <TextView
+                android:id="@+id/tv_last_gps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#444444"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Worker card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="14dp"
+            android:layout_marginBottom="20dp">
+
+            <TextView
+                android:id="@+id/tv_worker"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#666666"
+                android:textSize="12sp"
+                android:lineSpacingMultiplier="1.3" />
+        </LinearLayout>
+
+        <!-- Action buttons -->
         <Button
             android:id="@+id/btn_permissions"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginBottom="12dp"
-            android:backgroundTint="#333333"
+            android:layout_height="50dp"
+            android:layout_marginBottom="10dp"
+            android:backgroundTint="#2A2A2A"
             android:text="Grant Location Permissions"
             android:textColor="#FFFFFF"
-            android:textSize="15sp" />
+            android:textSize="14sp"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_battery"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginBottom="10dp"
+            android:backgroundTint="#2A2A2A"
+            android:text="Disable Battery Optimization"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textAllCaps="false" />
 
         <Button
             android:id="@+id/btn_service"
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginBottom="24dp"
-            android:backgroundTint="#FF6600"
+            android:backgroundTint="#FC4C02"
             android:text="Start GPS Service"
             android:textColor="#FFFFFF"
             android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tv_gps"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:textColor="#666666"
-            android:textSize="12sp"
-            android:lineSpacingMultiplier="1.4" />
+            android:textStyle="bold"
+            android:textAllCaps="false" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#555555"
+            android:textColor="#444444"
             android:textSize="11sp"
             android:lineSpacingMultiplier="1.4"
-            android:text="Credentials are shared with the Pebble companion JS via watch flash memory. Configure the Worker URL and secret once from the Pebble app → long-press Strava GPX Mailer → Settings." />
+            android:text="Configure the Worker URL and secret once via the Pebble app: long-press Strava GPX Mailer → Settings. Credentials are relayed through watch flash memory." />
 
     </LinearLayout>
 </ScrollView>

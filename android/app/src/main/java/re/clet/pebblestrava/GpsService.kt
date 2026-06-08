@@ -6,9 +6,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -16,9 +16,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.getpebble.android.kit.PebbleKit
-import com.getpebble.android.kit.util.PebbleDictionary
+import androidx.core.app.ServiceCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,8 +34,20 @@ class GpsService : Service() {
     data class HrSample(val hr: Int, val ts: Long)
 
     private lateinit var locationManager: LocationManager
-    private var pebbleReceiver: BroadcastReceiver? = null
-    private var gpsStarted = false
+    private lateinit var messenger: PebbleMessenger
+    private var gpsStarted    = false
+    private var gpsRateActive = false          // true = active recording rate (1s/1m)
+    private var lastGpsFix: Boolean? = null    // last fix state sent to watch; null = never sent
+
+    companion object {
+        private const val TAG = "GpsService"
+        const val ACTION_PEBBLE_DATA = "re.clet.pebblestrava.PEBBLE_DATA"
+        const val EXTRA_CMD_ACTION   = "cmd_action"
+        const val EXTRA_CMD_SPORT    = "cmd_sport"
+        const val EXTRA_HR_BPM       = "hr_bpm"
+        const val EXTRA_CRED_URL     = "cred_url"
+        const val EXTRA_CRED_SECRET  = "cred_secret"
+    }
 
     private val trackpoints = mutableListOf<Trackpoint>()
     private val hrSamples   = mutableListOf<HrSample>()
@@ -52,7 +64,7 @@ class GpsService : Service() {
         @Deprecated("Deprecated in API 29") override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {
-            PebbleMessenger.sendGpsFix(this@GpsService, false)
+            sendGpsFixIfChanged(false)
         }
     }
 
@@ -60,52 +72,111 @@ class GpsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "onCreate")
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        messenger = PebbleMessenger(this)
         createNotificationChannel()
-        startForeground(Constants.NOTIF_ID, buildNotification("Waiting for Pebble…"))
-        registerPebbleReceiver()
+        ServiceCompat.startForeground(
+            this,
+            Constants.NOTIF_ID,
+            buildNotification("Waiting for Pebble…"),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
+        )
         requestCredentials()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand action=${intent?.action} gpsStarted=$gpsStarted")
         if (!gpsStarted) startGps()
+
+        if (intent?.action == ACTION_PEBBLE_DATA) {
+            val cmdAction = intent.getIntExtra(EXTRA_CMD_ACTION, -1)
+            if (cmdAction >= 0) {
+                val sportVal = intent.getIntExtra(EXTRA_CMD_SPORT, Constants.SPORT_RUNNING)
+                handleCmd(cmdAction, sportVal)
+            }
+            val hr = intent.getIntExtra(EXTRA_HR_BPM, 0)
+            if (hr > 0) hrSamples.add(HrSample(hr, System.currentTimeMillis()))
+
+            val url    = intent.getStringExtra(EXTRA_CRED_URL)
+            val secret = intent.getStringExtra(EXTRA_CRED_SECRET)
+            if (url != null || secret != null) {
+                if (url    != null) prefs().edit().putString(Constants.PREF_WORKER_URL,    url).apply()
+                if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
+                val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
+                val s = secret ?: prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
+                if (u.isNotEmpty() && s.isNotEmpty()) pingWorker(u, s)
+            }
+        }
+
         return START_STICKY
     }
 
     override fun onDestroy() {
         stopGps()
-        pebbleReceiver?.let { try { unregisterReceiver(it) } catch (e: Exception) {} }
+        messenger.close()
         super.onDestroy()
     }
 
-    // === GPS ===
+    // === GPS rate management ===
+    // activeMode=true  → 1s / 1m  (accurate tracking while recording)
+    // activeMode=false → 5s / 10m (idle: just need fix-status indication)
 
     @SuppressLint("MissingPermission")
-    private fun startGps() {
-        if (!locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            PebbleMessenger.sendGpsFix(this, false)
-            return
+    private fun setGpsRate(activeMode: Boolean) {
+        if (activeMode == gpsRateActive && gpsStarted) return
+        locationManager.removeUpdates(locationListener)
+        val minTime = if (activeMode) 1000L else 5000L
+        val minDist = if (activeMode) 1f    else 10f
+        Log.d(TAG, "setGpsRate active=$activeMode (${minTime}ms/${minDist}m)")
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, minTime, minDist, locationListener, Looper.getMainLooper()
+                )
+            } else {
+                Log.w(TAG, "GPS_PROVIDER disabled")
+                sendGpsFixIfChanged(false)
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER, minTime, minDist, locationListener, Looper.getMainLooper()
+                )
+            }
+            gpsStarted    = true
+            gpsRateActive = activeMode
+        } catch (e: Exception) {
+            Log.e(TAG, "setGpsRate failed: $e")
         }
-        locationManager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            1000L,
-            1f,
-            locationListener,
-            Looper.getMainLooper()
-        )
-        gpsStarted = true
     }
+
+    private fun startGps() = setGpsRate(false)   // start at idle rate; switches to active on CMD_START
 
     private fun stopGps() {
         locationManager.removeUpdates(locationListener)
-        gpsStarted = false
+        gpsStarted    = false
+        gpsRateActive = false
+    }
+
+    // Only sends to watch when fix state actually changes — avoids redundant BLE traffic
+    private fun sendGpsFixIfChanged(hasFix: Boolean) {
+        if (hasFix == lastGpsFix) return
+        lastGpsFix = hasFix
+        messenger.sendGpsFix(hasFix)
     }
 
     private fun handleLocation(loc: Location) {
+        Log.d(TAG, "location provider=${loc.provider} lat=${loc.latitude} lon=${loc.longitude} acc=${loc.accuracy}")
         val lat = loc.latitude
         val lon = loc.longitude
         val alt = loc.altitude
         val spd = if (loc.hasSpeed()) loc.speed else 0f  // m/s
+
+        // Record last fix time and accuracy for the companion UI
+        prefs().edit()
+            .putLong(Constants.PREF_LAST_GPS_TIME, System.currentTimeMillis())
+            .putFloat(Constants.PREF_LAST_GPS_ACC, loc.accuracy)
+            .apply()
 
         if (isActive) {
             if (!lastLat.isNaN()) {
@@ -119,54 +190,16 @@ class GpsService : Service() {
             gpsTick++
             if (gpsTick == 1 || gpsTick >= Constants.GPS_SEND_EVERY) {
                 if (gpsTick >= Constants.GPS_SEND_EVERY) gpsTick = 0
-                PebbleMessenger.sendGps(this,
+                messenger.sendGps(
                     hasFix    = true,
                     distanceM = totalDistM.toInt(),
                     speedCms  = (spd * 100).toInt()
                 )
+                lastGpsFix = true   // sendGps bundles GPS_HAS_FIX=true
             }
         } else {
-            // Pre/post-workout: keep GPS fix status current on the watch select screen
-            gpsTick++
-            if (gpsTick == 1 || gpsTick >= Constants.GPS_SEND_EVERY) {
-                if (gpsTick >= Constants.GPS_SEND_EVERY) gpsTick = 0
-                PebbleMessenger.sendGpsFix(this, true)
-            }
-        }
-    }
-
-    // === Pebble AppMessage receiver ===
-
-    private fun registerPebbleReceiver() {
-        val receiver = object : PebbleKit.PebbleDataReceiver(Constants.APP_UUID) {
-            override fun receiveData(ctx: Context, txId: Int, data: PebbleDictionary) {
-                PebbleKit.sendAckToPebble(ctx, txId)
-                handlePebbleMessage(data)
-            }
-        }
-        pebbleReceiver = PebbleKit.registerReceivedDataHandler(this, receiver)
-    }
-
-    private fun handlePebbleMessage(data: PebbleDictionary) {
-        val url    = data.getString(Constants.KEY_CRED_URL)
-        val secret = data.getString(Constants.KEY_CRED_SECRET)
-
-        if (url != null) prefs().edit().putString(Constants.PREF_WORKER_URL, url).apply()
-        if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
-        if (url != null || secret != null) {
-            val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
-            val s = secret ?: prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
-            if (u.isNotEmpty() && s.isNotEmpty()) pingWorker(u, s)
-        }
-
-        data.getUnsignedIntegerAsLong(Constants.KEY_HR_BPM)?.let { hr ->
-            if (hr > 0) hrSamples.add(HrSample(hr.toInt(), System.currentTimeMillis()))
-        }
-
-        data.getUnsignedIntegerAsLong(Constants.KEY_CMD_ACTION)?.let { action ->
-            val sportVal = data.getUnsignedIntegerAsLong(Constants.KEY_CMD_SPORT)?.toInt()
-                           ?: Constants.SPORT_RUNNING
-            handleCmd(action.toInt(), sportVal)
+            // Pre/post-workout: only notify watch when fix status changes
+            sendGpsFixIfChanged(true)
         }
     }
 
@@ -181,13 +214,15 @@ class GpsService : Service() {
                 gpsTick    = 0
                 trackpoints.clear()
                 hrSamples.clear()
+                setGpsRate(true)   // switch to high-rate GPS
                 updateNotification("Recording ${if (sport == Constants.SPORT_CYCLING) "ride" else "run"}…")
             }
             Constants.CMD_STOP -> {
                 isActive = false
+                setGpsRate(false)  // back to idle rate
                 updateNotification("Uploading GPX…")
                 if (trackpoints.isEmpty()) {
-                    PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_ERROR, "No GPS data")
+                    messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "No GPS data")
                     updateNotification("No GPS data")
                     return
                 }
@@ -197,11 +232,13 @@ class GpsService : Service() {
                 isActive = false
                 lastLat  = Double.NaN
                 lastLon  = Double.NaN
+                setGpsRate(false)  // conserve battery while paused
                 updateNotification("Paused")
             }
             Constants.CMD_RESUME -> {
                 isActive = true
-                gpsTick  = 0   // send GPS update immediately on resume
+                gpsTick  = 0
+                setGpsRate(true)   // full rate again
                 updateNotification("Recording ${if (sport == Constants.SPORT_CYCLING) "ride" else "run"}…")
             }
         }
@@ -215,7 +252,7 @@ class GpsService : Service() {
         if (url.isNotEmpty() && secret.isNotEmpty()) {
             pingWorker(url, secret)
         } else {
-            PebbleMessenger.sendCredRequest(this)
+            messenger.sendCredRequest()
         }
     }
 
@@ -228,9 +265,9 @@ class GpsService : Service() {
                 conn.readTimeout    = 8000
                 val ok = conn.responseCode == 200
                 conn.disconnect()
-                PebbleMessenger.sendWorkerStatus(this, ok)
+                messenger.sendWorkerStatus(ok)
             } catch (e: Exception) {
-                PebbleMessenger.sendWorkerStatus(this, false)
+                messenger.sendWorkerStatus(false)
             }
         }.start()
     }
@@ -241,10 +278,10 @@ class GpsService : Service() {
         val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
         val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
         if (url.isEmpty() || secret.isEmpty()) {
-            PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_ERROR, "No credentials")
+            messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "No credentials")
             return
         }
-        PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_PENDING)
+        messenger.sendUploadStatus(Constants.UPLOAD_PENDING)
         Thread {
             try {
                 val activityName = buildActivityName()
@@ -265,15 +302,15 @@ class GpsService : Service() {
                 conn.outputStream.write(body.toByteArray(Charsets.UTF_8))
 
                 if (conn.responseCode == 200) {
-                    PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_SUCCESS)
+                    messenger.sendUploadStatus(Constants.UPLOAD_SUCCESS)
                     updateNotification("GPX sent ✓")
                 } else {
-                    PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_ERROR, "HTTP ${conn.responseCode}")
+                    messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "HTTP ${conn.responseCode}")
                     updateNotification("Upload failed")
                 }
                 conn.disconnect()
             } catch (e: Exception) {
-                PebbleMessenger.sendUploadStatus(this, Constants.UPLOAD_ERROR, "Network error")
+                messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "Network error")
                 updateNotification("Upload failed")
             }
         }.start()
@@ -285,7 +322,6 @@ class GpsService : Service() {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val tod  = when { hour < 12 -> "Morning"; hour < 17 -> "Afternoon"; else -> "Evening" }
         val type = if (sport == Constants.SPORT_CYCLING) "Ride" else "Run"
-        // Use first trackpoint for geocoding — lastLat/lastLon may be NaN if paused before stop
         val first = trackpoints.firstOrNull()
         val city  = if (first != null) reverseGeocode(first.lat, first.lon) else null
         return "${if (city != null) "$city " else ""}$tod $type"

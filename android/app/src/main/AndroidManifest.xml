@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Visibility: allow querying the Core Devices / Rebble app -->
+    <queries>
+        <package android:name="coredevices.coreapp" />
+        <intent>
+            <action android:name="io.rebble.pebblekit2.SEND_DATA_TO_WATCH" />
+        </intent>
+    </queries>
+
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
@@ -9,6 +17,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
@@ -31,6 +40,18 @@
             android:name=".GpsService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!--
+            PebbleKit2 listener service — Core app (coredevices.coreapp) binds here
+            when our watchapp is open on the watch.
+        -->
+        <service
+            android:name=".PebbleListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.rebble.pebblekit2.RECEIVE_DATA_FROM_WATCH" />
+            </intent-filter>
+        </service>
 
         <!-- Auto-start GPS service after device reboot -->
         <receiver

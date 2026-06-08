@@ -1,47 +1,73 @@
 package re.clet.pebblestrava
 
 import android.content.Context
-import com.getpebble.android.kit.PebbleKit
-import com.getpebble.android.kit.util.PebbleDictionary
+import android.util.Log
+import io.rebble.pebblekit2.client.DefaultPebbleSender
+import io.rebble.pebblekit2.common.model.PebbleDictionaryItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-object PebbleMessenger {
+class PebbleMessenger(context: Context) {
 
-    fun sendGps(ctx: Context, hasFix: Boolean, distanceM: Int, speedCms: Int) {
-        val dict = PebbleDictionary()
-        dict.addInt8(Constants.KEY_GPS_HAS_FIX, if (hasFix) 1.toByte() else 0.toByte())
-        dict.addInt32(Constants.KEY_GPS_DISTANCE, distanceM)
-        dict.addInt32(Constants.KEY_GPS_SPEED, speedCms)
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    private val TAG = "PebbleMessenger"
+    private val sender = DefaultPebbleSender(context)
+    private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun sendGpsFix(hasFix: Boolean) {
+        scope.launch {
+            val result = sender.sendDataToPebble(Constants.APP_UUID, mapOf(
+                Constants.KEY_GPS_HAS_FIX.toUInt() to PebbleDictionaryItem.Int8(if (hasFix) 1 else 0),
+            ))
+            Log.d(TAG, "sendGpsFix hasFix=$hasFix result=$result")
+        }
     }
 
-    fun sendGpsFix(ctx: Context, hasFix: Boolean) {
-        val dict = PebbleDictionary()
-        dict.addInt8(Constants.KEY_GPS_HAS_FIX, if (hasFix) 1.toByte() else 0.toByte())
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    fun sendGps(hasFix: Boolean, distanceM: Int, speedCms: Int) {
+        scope.launch {
+            val result = sender.sendDataToPebble(Constants.APP_UUID, mapOf(
+                Constants.KEY_GPS_HAS_FIX.toUInt()  to PebbleDictionaryItem.Int8(if (hasFix) 1 else 0),
+                Constants.KEY_GPS_DISTANCE.toUInt() to PebbleDictionaryItem.Int32(distanceM),
+                Constants.KEY_GPS_SPEED.toUInt()    to PebbleDictionaryItem.Int32(speedCms),
+            ))
+            Log.d(TAG, "sendGps dist=$distanceM speed=$speedCms result=$result")
+        }
     }
 
-    fun sendUploadStatus(ctx: Context, status: Int, msg: String? = null) {
-        val dict = PebbleDictionary()
-        dict.addInt8(Constants.KEY_UPLOAD_STATUS, status.toByte())
-        if (msg != null) dict.addString(Constants.KEY_UPLOAD_MSG, msg.take(30))
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    fun sendUploadStatus(status: Int, msg: String = "") {
+        scope.launch {
+            val dict = mutableMapOf(
+                Constants.KEY_UPLOAD_STATUS.toUInt() to
+                    (PebbleDictionaryItem.Int8(status.toByte()) as PebbleDictionaryItem)
+            )
+            if (msg.isNotEmpty()) dict[Constants.KEY_UPLOAD_MSG.toUInt()] =
+                PebbleDictionaryItem.Text(msg.take(30))
+            sender.sendDataToPebble(Constants.APP_UUID, dict)
+        }
     }
 
-    fun sendUploadMsg(ctx: Context, msg: String) {
-        val dict = PebbleDictionary()
-        dict.addString(Constants.KEY_UPLOAD_MSG, msg.take(30))
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    fun sendWorkerStatus(ok: Boolean) {
+        scope.launch {
+            sender.sendDataToPebble(Constants.APP_UUID, mapOf(
+                Constants.KEY_WORKER_STATUS.toUInt() to
+                    PebbleDictionaryItem.Int8(if (ok) Constants.WORKER_OK.toByte() else Constants.WORKER_ERROR.toByte()),
+            ))
+        }
     }
 
-    fun sendWorkerStatus(ctx: Context, ok: Boolean) {
-        val dict = PebbleDictionary()
-        dict.addInt8(Constants.KEY_WORKER_STATUS, if (ok) Constants.WORKER_OK.toByte() else Constants.WORKER_ERROR.toByte())
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    fun sendCredRequest() {
+        scope.launch {
+            val result = sender.sendDataToPebble(Constants.APP_UUID, mapOf(
+                Constants.KEY_CRED_REQUEST.toUInt() to PebbleDictionaryItem.Int8(1),
+            ))
+            Log.d(TAG, "sendCredRequest result=$result")
+        }
     }
 
-    fun sendCredRequest(ctx: Context) {
-        val dict = PebbleDictionary()
-        dict.addInt8(Constants.KEY_CRED_REQUEST, 1.toByte())
-        PebbleKit.sendDataToPebble(ctx, Constants.APP_UUID, dict)
+    fun close() {
+        scope.cancel()
+        sender.close()
     }
 }
