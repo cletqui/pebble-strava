@@ -1,5 +1,6 @@
 package re.clet.pebblestrava
 
+import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -51,6 +52,8 @@ class PebbleListenerService : BasePebbleListenerService() {
     override fun onAppOpened(watchappUUID: UUID, watch: WatchIdentifier) {
         Log.d(TAG, "onAppOpened uuid=$watchappUUID")
         if (watchappUUID != Constants.APP_UUID) return
+        getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putLong(Constants.PREF_LAST_APP_OPENED, System.currentTimeMillis()).apply()
         try {
             ContextCompat.startForegroundService(this, Intent(this, GpsService::class.java))
             Log.d(TAG, "startForegroundService(GpsService) sent")
@@ -62,6 +65,8 @@ class PebbleListenerService : BasePebbleListenerService() {
     override fun onAppClosed(watchappUUID: UUID, watch: WatchIdentifier) {
         Log.d(TAG, "onAppClosed uuid=$watchappUUID")
         if (watchappUUID != Constants.APP_UUID) return
+        getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putLong(Constants.PREF_LAST_APP_OPENED, 0L).apply()
         stopService(Intent(this, GpsService::class.java))
     }
 

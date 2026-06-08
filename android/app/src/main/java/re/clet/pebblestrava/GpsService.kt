@@ -53,18 +53,15 @@ class GpsService : Service() {
 
     @Volatile private var isUploading = false
 
-    // Credential retry — resends CRED_REQUEST every 3 s (up to 5 times) if watch wasn't
-    // listening on the first attempt. Cancelled as soon as creds arrive.
+    // Credential retry — resends CRED_REQUEST every 5 s until creds arrive or service stops.
+    // No retry cap: if the user opens the watch app late, the next send will succeed.
     private val credRetryHandler = Handler(Looper.getMainLooper())
-    private var credRetryCount = 0
     private val credRetryRunnable: Runnable = object : Runnable {
         override fun run() {
-            if (credRetryCount >= 5) return
             if ((prefs().getString(Constants.PREF_WORKER_URL, "") ?: "").isNotEmpty()) return
-            credRetryCount++
-            Log.d(TAG, "Credential request retry $credRetryCount/5")
+            Log.d(TAG, "Credential request retry")
             messenger.sendCredRequest()
-            credRetryHandler.postDelayed(this, 3000)
+            credRetryHandler.postDelayed(this, 5000)
         }
     }
 
@@ -129,7 +126,6 @@ class GpsService : Service() {
             if (url != null || secret != null) {
                 // Credentials received from watch — cancel any pending retry
                 credRetryHandler.removeCallbacks(credRetryRunnable)
-                credRetryCount = 5
                 if (url    != null) prefs().edit().putString(Constants.PREF_WORKER_URL,    url).apply()
                 if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
                 val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
@@ -286,14 +282,13 @@ class GpsService : Service() {
         val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
         if (url.isNotEmpty() && secret.isNotEmpty()) {
             credRetryHandler.removeCallbacks(credRetryRunnable)
-            credRetryCount = 5
             pingWorker(url, secret)
         } else {
-            // Send initial request and schedule retries in case the watch wasn't listening yet
+            // Send initial request and keep retrying every 5 s until the watch responds.
+            // The loop stops itself when prefs contain a URL, or is cancelled on service destroy.
             credRetryHandler.removeCallbacks(credRetryRunnable)
-            credRetryCount = 0
             messenger.sendCredRequest()
-            credRetryHandler.postDelayed(credRetryRunnable, 3000)
+            credRetryHandler.postDelayed(credRetryRunnable, 5000)
         }
     }
 

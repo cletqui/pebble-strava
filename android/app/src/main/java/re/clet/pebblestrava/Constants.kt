@@ -39,11 +39,12 @@ object Constants {
     const val WORKER_OK    = 1
     const val WORKER_ERROR = 2
 
-    const val PREFS_NAME         = "pebble_strava_prefs"
-    const val PREF_WORKER_URL    = "worker_url"
-    const val PREF_WORKER_SECRET = "worker_secret"
-    const val PREF_LAST_GPS_TIME = "last_gps_time"
-    const val PREF_LAST_GPS_ACC  = "last_gps_acc"
+    const val PREFS_NAME              = "pebble_strava_prefs"
+    const val PREF_WORKER_URL         = "worker_url"
+    const val PREF_WORKER_SECRET      = "worker_secret"
+    const val PREF_LAST_GPS_TIME      = "last_gps_time"
+    const val PREF_LAST_GPS_ACC       = "last_gps_acc"
+    const val PREF_LAST_APP_OPENED    = "last_app_opened_ms"   // epoch ms, 0 = never seen
 
     const val NOTIF_CHANNEL_ID = "gps_tracking"
     const val NOTIF_ID         = 1

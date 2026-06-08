@@ -90,7 +90,10 @@ class MainActivity : AppCompatActivity() {
             sb.setSpan(ForegroundColorSpan(if (ok) GREEN else ORANGE), start, sb.length, 0)
             sb.append("\n")
         }
+        val lastAppOpened = prefs().getLong(Constants.PREF_LAST_APP_OPENED, 0L)
+        val watchConnected = lastAppOpened > 0L
         row("Pebble app", coreInstalled, "installed", "not found")
+        row("Watch app",  watchConnected, "open ✓", "not open — open Strava GPX Mailer on your Pebble")
         row("Permissions", permsOk, "granted", "tap button below")
         row("Battery opt", batteryOk, "exempted", "tap button below")
         row("GPS service", serviceRunning, "running", "stopped")
@@ -99,7 +102,7 @@ class MainActivity : AppCompatActivity() {
         // Worker info
         val workerUrl = prefs().getString(Constants.PREF_WORKER_URL, "") ?: ""
         tvWorker.text = if (workerUrl.isNotEmpty()) "Worker: $workerUrl"
-                        else "Worker: not configured — open Settings on the watch"
+                        else "Worker: not configured — open Strava GPX Mailer on your Pebble"
 
         // Last GPS fix
         val lastGpsTime = prefs().getLong(Constants.PREF_LAST_GPS_TIME, 0L)
