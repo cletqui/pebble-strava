@@ -10,3 +10,4 @@ worker/node_modules/
 worker/bun.lockb
 worker/bun.lock
 worker/.wrangler
+android/.kotlin/
