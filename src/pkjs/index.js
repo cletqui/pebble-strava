@@ -92,7 +92,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<option value="15">15 seconds — recommended</option>' +
 '<option value="30">30 seconds — best battery</option>' +
 '</select>' +
-'<p class="hint">How often the watch sends HR to the companion. Lower = smoother data, higher = longer watch battery.</p>' +
+'<p class="hint">How often the watch sends HR to the companion. Lower = smoother data, higher = longer watch battery. Use 15–30 s for walks.</p>' +
 '</div>' +
 '<button onclick="save()">Save &amp; Close</button>' +
 '<script>' +
