@@ -69,9 +69,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (allPermissionsGranted() && isBatteryOptimizationExempted()) {
-            if (!isServiceRunning()) startGpsService()
-        }
         updateUi()
     }
 
