@@ -363,15 +363,14 @@ class GpsService : Service() {
 
     private fun buildDesc(): String {
         val durationS = if (trackpoints.size >= 2)
-            (trackpoints.last().time - trackpoints.first().time) / 1000 else 0
+            (trackpoints.last().time - trackpoints.first().time) / 1000 else 0L
         val distKm = totalDistM / 1000.0
         val avgHr = if (hrSamples.isNotEmpty()) hrSamples.map { it.hr }.average().toInt() else 0
         val parts = mutableListOf<String>()
         if (distKm >= 0.01) parts.add("${"%.2f".format(distKm)} km")
         val h = durationS / 3600; val m = (durationS % 3600) / 60; val s = durationS % 60
-        parts.add(if (h > 0) "${h}h${"%02d".format(m)}m" else "${m}m${"%02d".format(s)}s")
-        if (avgHr > 0) parts.add("avg ${avgHr} bpm")
-        parts.add("${trackpoints.size} pts · Pebble Time 2")
+        parts.add(if (h > 0) "${h}h ${"%02d".format(m)}min" else "${m}min ${"%02d".format(s)}s")
+        if (avgHr > 0) parts.add("avg HR ${avgHr} bpm")
         return parts.joinToString(" · ")
     }
 
@@ -406,6 +405,8 @@ class GpsService : Service() {
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"Pebble Time 2\"\n")
         sb.append("  xmlns=\"http://www.topografix.com/GPX/1/1\"\n")
+        sb.append("  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n")
+        sb.append("  xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\"\n")
         sb.append("  xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\">\n")
         sb.append("<metadata><name>$name</name><time>$startTime</time><desc>$desc</desc></metadata>\n")
         sb.append("<trk><name>$name</name><type>$trackType</type><desc>$desc</desc><trkseg>\n")
