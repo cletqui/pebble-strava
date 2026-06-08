@@ -34,6 +34,12 @@ class PebbleListenerService : BasePebbleListenerService() {
                 getInt(data, Constants.KEY_CMD_SPORT)?.let { s ->
                     putExtra(GpsService.EXTRA_CMD_SPORT, s)
                 }
+                getInt(data, Constants.KEY_SETTINGS_GPS_ACCURACY)?.let { acc ->
+                    putExtra(GpsService.EXTRA_GPS_ACCURACY, acc)
+                }
+                getInt(data, Constants.KEY_SETTINGS_UNITS)?.let { u ->
+                    putExtra(GpsService.EXTRA_UNITS, u)
+                }
             }
             getInt(data, Constants.KEY_HR_BPM)?.let { if (it > 0) putExtra(GpsService.EXTRA_HR_BPM, it) }
             getText(data, Constants.KEY_CRED_URL)?.let    { putExtra(GpsService.EXTRA_CRED_URL,    it) }

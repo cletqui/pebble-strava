@@ -42,13 +42,15 @@ class GpsService : Service() {
 
     companion object {
         private const val TAG = "GpsService"
-        const val ACTION_PEBBLE_DATA = "re.clet.pebblestrava.PEBBLE_DATA"
-        const val ACTION_STOP_SELF   = "re.clet.pebblestrava.STOP_SELF"
-        const val EXTRA_CMD_ACTION   = "cmd_action"
-        const val EXTRA_CMD_SPORT    = "cmd_sport"
-        const val EXTRA_HR_BPM       = "hr_bpm"
-        const val EXTRA_CRED_URL     = "cred_url"
-        const val EXTRA_CRED_SECRET  = "cred_secret"
+        const val ACTION_PEBBLE_DATA  = "re.clet.pebblestrava.PEBBLE_DATA"
+        const val ACTION_STOP_SELF    = "re.clet.pebblestrava.STOP_SELF"
+        const val EXTRA_CMD_ACTION    = "cmd_action"
+        const val EXTRA_CMD_SPORT     = "cmd_sport"
+        const val EXTRA_HR_BPM        = "hr_bpm"
+        const val EXTRA_CRED_URL      = "cred_url"
+        const val EXTRA_CRED_SECRET   = "cred_secret"
+        const val EXTRA_GPS_ACCURACY  = "gps_accuracy"
+        const val EXTRA_UNITS         = "units"
     }
 
     @Volatile private var isUploading = false
@@ -71,6 +73,8 @@ class GpsService : Service() {
     private var isActive      = false
     private var sport         = Constants.SPORT_CYCLING
     private var gpsTickLimit  = Constants.GPS_SEND_EVERY  // overridden per-sport at CMD_START
+    private var gpsAccuracy   = 25f   // accuracy threshold in meters, from SETTINGS_GPS_ACCURACY
+    private var imperial      = false // false = metric, true = imperial
     private var totalDistM    = 0.0
     private var lastLat       = Double.NaN
     private var lastLon       = Double.NaN
@@ -117,6 +121,10 @@ class GpsService : Service() {
             val cmdAction = intent.getIntExtra(EXTRA_CMD_ACTION, -1)
             if (cmdAction >= 0) {
                 val sportVal = intent.getIntExtra(EXTRA_CMD_SPORT, Constants.SPORT_RUNNING)
+                val accVal   = intent.getIntExtra(EXTRA_GPS_ACCURACY, -1)
+                if (accVal == 15 || accVal == 25 || accVal == 50) gpsAccuracy = accVal.toFloat()
+                val unitsVal = intent.getIntExtra(EXTRA_UNITS, -1)
+                if (unitsVal == 0 || unitsVal == 1) imperial = (unitsVal == 1)
                 handleCmd(cmdAction, sportVal)
             }
             val hr = intent.getIntExtra(EXTRA_HR_BPM, 0)
@@ -211,8 +219,7 @@ class GpsService : Service() {
             .apply()
 
         if (isActive) {
-            // Skip imprecise fixes when recording — they cause visible jumps in the track
-            if (loc.hasAccuracy() && loc.accuracy > 25f) return
+            if (loc.hasAccuracy() && loc.accuracy > gpsAccuracy) return
 
             if (!lastLat.isNaN()) {
                 val d = haversine(lastLat, lastLon, lat, lon)
@@ -332,7 +339,7 @@ class GpsService : Service() {
                 val gpx  = buildGpx(activityName)
                 val body = JSONObject().apply {
                     put("gpx",   gpx)
-                    put("sport", if (sport == Constants.SPORT_CYCLING) "ride" else "run")
+                    put("sport", when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "walk" })
                     put("name",  activityName)
                     put("desc",  desc)
                 }.toString()
@@ -377,10 +384,15 @@ class GpsService : Service() {
             }
             ms / 1000
         } else 0L
-        val distKm = totalDistM / 1000.0
         val avgHr = if (hrSamples.isNotEmpty()) hrSamples.map { it.hr }.average().toInt() else 0
         val parts = mutableListOf<String>()
-        if (distKm >= 0.01) parts.add("${"%.2f".format(distKm)} km")
+        if (!imperial) {
+            val distKm = totalDistM / 1000.0
+            if (distKm >= 0.01) parts.add("${"%.2f".format(distKm)} km")
+        } else {
+            val distMi = totalDistM / 1609.344
+            if (distMi >= 0.01) parts.add("${"%.2f".format(distMi)} mi")
+        }
         val h = durationS / 3600; val m = (durationS % 3600) / 60; val s = durationS % 60
         parts.add(if (h > 0) "${h}h ${"%02d".format(m)}min" else "${m}min ${"%02d".format(s)}s")
         if (avgHr > 0) parts.add("avg HR ${avgHr} bpm")

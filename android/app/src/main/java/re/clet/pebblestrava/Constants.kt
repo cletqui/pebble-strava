@@ -17,8 +17,12 @@ object Constants {
     const val KEY_CRED_REQUEST  = 10008
     const val KEY_CRED_URL      = 10009
     const val KEY_CRED_SECRET   = 10010
-    const val KEY_WORKER_STATUS        = 10011
-    const val KEY_SETTINGS_HR_INTERVAL = 10012
+    const val KEY_WORKER_STATUS                = 10011
+    const val KEY_SETTINGS_HR_INTERVAL_CYCLING = 10012
+    const val KEY_SETTINGS_HR_INTERVAL_RUNNING = 10013
+    const val KEY_SETTINGS_HR_INTERVAL_WALKING = 10014
+    const val KEY_SETTINGS_GPS_ACCURACY        = 10015
+    const val KEY_SETTINGS_UNITS               = 10016
 
     // CMD_ACTION values
     const val CMD_START  = 0
@@ -46,6 +50,8 @@ object Constants {
     const val PREF_LAST_GPS_TIME      = "last_gps_time"
     const val PREF_LAST_GPS_ACC       = "last_gps_acc"
     const val PREF_LAST_APP_OPENED    = "last_app_opened_ms"   // epoch ms, 0 = never seen
+    const val PREF_GPS_ACCURACY       = "gps_accuracy"         // 15 / 25 / 50 m
+    const val PREF_UNITS              = "units"                 // 0 = metric, 1 = imperial
 
     const val NOTIF_CHANNEL_ID = "gps_tracking"
     const val NOTIF_ID         = 1

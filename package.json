@@ -1,7 +1,7 @@
 {
   "name": "pebble-strava",
   "author": "clet",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
@@ -42,7 +42,11 @@
       "CRED_URL",
       "CRED_SECRET",
       "WORKER_STATUS",
-      "SETTINGS_HR_INTERVAL"
+      "SETTINGS_HR_INTERVAL_CYCLING",
+      "SETTINGS_HR_INTERVAL_RUNNING",
+      "SETTINGS_HR_INTERVAL_WALKING",
+      "SETTINGS_GPS_ACCURACY",
+      "SETTINGS_UNITS"
     ],
     "resources": {
       "media": [

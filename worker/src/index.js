@@ -27,65 +27,112 @@ export default {
 };
 
 function serveConfig(url) {
-  const workerUrl    = url.searchParams.get('url')        || '';
-  const workerSecret = url.searchParams.get('secret')     || '';
-  const hrInterval   = url.searchParams.get('hrInterval') || '5';
+  const workerUrl    = url.searchParams.get('url')         || '';
+  const workerSecret = url.searchParams.get('secret')      || '';
+  const hrCycling    = url.searchParams.get('hrCycling')   || '5';
+  const hrRunning    = url.searchParams.get('hrRunning')   || '5';
+  const hrWalking    = url.searchParams.get('hrWalking')   || '15';
+  const gpsAccuracy  = url.searchParams.get('gpsAccuracy') || '25';
+  const units        = url.searchParams.get('units')       || '0';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Strava GPX Mailer — Setup</title>
+<title>Strava GPX Mailer</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,sans-serif;background:#0f0f0f;color:#eee;padding:24px 20px;min-height:100vh}
   h1{font-size:20px;color:#fc4c02;margin-bottom:4px}
   .sub{font-size:13px;color:#777;margin-bottom:28px}
   .section{background:#1a1a1a;border-radius:10px;padding:16px;margin-bottom:16px}
-  label{display:block;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  .section-title{font-size:11px;color:#fc4c02;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;font-weight:600}
+  label{display:block;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;margin-top:12px}
+  label:first-of-type{margin-top:0}
   input,select{width:100%;padding:11px 12px;background:#252525;border:1px solid #3a3a3a;border-radius:8px;color:#eee;font-size:15px;outline:none;-webkit-appearance:none}
   input:focus,select:focus{border-color:#fc4c02}
-  .hint{font-size:12px;color:#555;margin-top:6px;line-height:1.4}
+  .hint{font-size:12px;color:#555;margin-top:8px;line-height:1.4}
   button{width:100%;padding:14px;background:#fc4c02;border:none;border-radius:10px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;letter-spacing:.02em}
   button:active{background:#d94000}
 </style>
 </head>
 <body>
 <h1>Strava GPX Mailer</h1>
-<p class="sub">Cloudflare Worker credentials</p>
+<p class="sub">Setup &amp; Preferences</p>
 
 <div class="section">
-  <label>Worker URL</label>
-  <input id="url" type="url" placeholder="https://pebble-strava.xxx.workers.dev" value="${workerUrl}">
-  <p class="hint">From <code>wrangler deploy</code> output.</p>
+<p class="section-title">Worker</p>
+<label>Worker URL</label>
+<input id="url" type="url" placeholder="https://pebble-strava.xxx.workers.dev" value="${workerUrl}">
+<p class="hint">From <code>wrangler deploy</code> output.</p>
+<label>Upload Secret</label>
+<input id="secret" type="text" placeholder="your_upload_secret" value="${workerSecret}">
+<p class="hint">The UPLOAD_SECRET set with <code>wrangler secret put</code>.</p>
 </div>
 
 <div class="section">
-  <label>Upload Secret</label>
-  <input id="secret" type="text" placeholder="your_upload_secret" value="${workerSecret}">
-  <p class="hint">The UPLOAD_SECRET set with <code>wrangler secret put</code>.</p>
+<p class="section-title">Heart Rate Interval</p>
+<label>Cycling</label>
+<select id="hr-c">
+<option value="5">5 s — most responsive</option>
+<option value="10">10 s</option>
+<option value="15">15 s</option>
+<option value="30">30 s — best battery</option>
+</select>
+<label>Running</label>
+<select id="hr-r">
+<option value="5">5 s — most responsive</option>
+<option value="10">10 s</option>
+<option value="15">15 s</option>
+<option value="30">30 s — best battery</option>
+</select>
+<label>Walking</label>
+<select id="hr-w">
+<option value="5">5 s</option>
+<option value="10">10 s</option>
+<option value="15">15 s — recommended</option>
+<option value="30">30 s — best battery</option>
+</select>
+<p class="hint">How often the watch reads &amp; sends HR to the companion. Lower = smoother data, higher = longer battery.</p>
 </div>
 
 <div class="section">
-  <label>Heart Rate Send Interval</label>
-  <select id="hr">
-    <option value="5">5 seconds — most responsive</option>
-    <option value="10">10 seconds</option>
-    <option value="15">15 seconds — recommended</option>
-    <option value="30">30 seconds — best battery</option>
-  </select>
-  <p class="hint">How often the watch sends HR to the companion. Lower = smoother data, higher = longer watch battery.</p>
+<p class="section-title">GPS</p>
+<label>Accuracy Filter</label>
+<select id="gps">
+<option value="15">Strict — 15 m (open terrain)</option>
+<option value="25">Default — 25 m</option>
+<option value="50">Lenient — 50 m (urban areas)</option>
+</select>
+<p class="hint">Fixes worse than this threshold are dropped when recording. Use lenient in urban canyons to keep more points.</p>
+</div>
+
+<div class="section">
+<p class="section-title">Display</p>
+<label>Units</label>
+<select id="units">
+<option value="0">Metric — km, km/h, min/km</option>
+<option value="1">Imperial — mi, mph, min/mi</option>
+</select>
 </div>
 
 <button onclick="save()">Save &amp; Close</button>
 <script>
-document.getElementById('hr').value = '${hrInterval}';
+document.getElementById('hr-c').value = '${hrCycling}';
+document.getElementById('hr-r').value = '${hrRunning}';
+document.getElementById('hr-w').value = '${hrWalking}';
+document.getElementById('gps').value  = '${gpsAccuracy}';
+document.getElementById('units').value = '${units}';
 function save() {
   var data = {
     workerUrl:    document.getElementById('url').value.trim(),
     workerSecret: document.getElementById('secret').value.trim(),
-    hrInterval:   document.getElementById('hr').value,
+    hrCycling:    document.getElementById('hr-c').value,
+    hrRunning:    document.getElementById('hr-r').value,
+    hrWalking:    document.getElementById('hr-w').value,
+    gpsAccuracy:  document.getElementById('gps').value,
+    units:        document.getElementById('units').value,
   };
   location.href = 'pebblejs://close#' + encodeURIComponent(JSON.stringify(data));
 }
@@ -126,7 +173,7 @@ async function handleUpload(request, env) {
 }
 
 async function sendEmail(env, activityName, filename, gpx, sport, desc) {
-  const typeLabel = sport === 'ride' ? 'cycling' : 'running';
+  const typeLabel = sport === 'ride' ? 'cycling' : sport === 'walk' ? 'walking' : 'running';
 
   const lines = [
     `Your ${typeLabel} activity is attached as a GPX file.`,

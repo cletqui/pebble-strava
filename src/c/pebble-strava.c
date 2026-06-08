@@ -7,9 +7,13 @@
 #define CMD_PAUSE   2
 #define CMD_RESUME  3
 
-#define PERSIST_KEY_URL         1
-#define PERSIST_KEY_SECRET      2
-#define PERSIST_KEY_HR_INTERVAL 3
+#define PERSIST_KEY_URL          1
+#define PERSIST_KEY_SECRET       2
+#define PERSIST_KEY_HR_CYCLING   3  // was global HR_INTERVAL — migrates naturally
+#define PERSIST_KEY_HR_RUNNING   4
+#define PERSIST_KEY_HR_WALKING   5
+#define PERSIST_KEY_GPS_ACCURACY 6
+#define PERSIST_KEY_UNITS        7
 
 #define SPORT_CYCLING 0
 #define SPORT_RUNNING 1
@@ -49,10 +53,12 @@ static bool      s_up_armed   = false;
 static AppTimer *s_up_timer         = NULL;
 static AppTimer *s_upload_done_timer = NULL;
 
-// HR: configurable send interval (persist key 3), track last sent value to skip duplicates
-static int     s_hr_interval_s = 5;
-static int     s_hr_tick_count = 0;
-static int16_t s_last_sent_hr  = -1;
+// HR: per-sport send interval; GPS accuracy threshold; units flag
+static int     s_hr_interval_s[3] = {5, 5, 15};  // cycling / running / walking defaults
+static int     s_hr_tick_count    = 0;
+static int16_t s_last_sent_hr     = -1;
+static int     s_gps_accuracy     = 25;  // meters — relayed to Android on CMD_START
+static bool    s_imperial         = false;
 
 // === Windows & layers ===
 
@@ -95,27 +101,49 @@ static void fmt_time(char *buf, size_t n, uint32_t secs) {
 }
 
 static void fmt_dist(char *buf, size_t n, uint32_t m) {
-  if (m < 1000) {
-    snprintf(buf, n, "%lu m", (unsigned long)m);
+  if (!s_imperial) {
+    if (m < 1000) {
+      snprintf(buf, n, "%lu m", (unsigned long)m);
+    } else {
+      unsigned long km  = m / 1000;
+      unsigned long dec = (m % 1000) / 10;
+      snprintf(buf, n, "%lu.%02lu km", km, dec);
+    }
   } else {
-    unsigned long km  = m / 1000;
-    unsigned long dec = (m % 1000) / 10;
-    snprintf(buf, n, "%lu.%02lu km", km, dec);
+    if (m < 1609) {
+      unsigned long ft = (unsigned long)m * 5000 / 1524;  // m → feet
+      snprintf(buf, n, "%lu ft", ft);
+    } else {
+      unsigned long mi  = m / 1609;
+      unsigned long dec = (m % 1609) * 100 / 1609;
+      snprintf(buf, n, "%lu.%02lu mi", mi, dec);
+    }
   }
 }
 
 static void fmt_speed(char *buf, size_t n, uint32_t cms, int sport) {
   if (sport == SPORT_CYCLING) {
-    // km/h = cms * 36 / 1000
-    if (cms < 10) { snprintf(buf, n, "0.0 km/h"); return; }
-    unsigned long i = (cms * 36) / 1000;
-    unsigned long d = ((cms * 36) % 1000) / 10;
-    snprintf(buf, n, "%lu.%02lu km/h", i, d);
+    if (!s_imperial) {
+      if (cms < 10) { snprintf(buf, n, "0.0 km/h"); return; }
+      unsigned long i = (cms * 36) / 1000;
+      unsigned long d = ((cms * 36) % 1000) / 10;
+      snprintf(buf, n, "%lu.%02lu km/h", i, d);
+    } else {
+      if (cms < 10) { snprintf(buf, n, "0.0 mph"); return; }
+      unsigned long i = (cms * 36) / 1609;
+      unsigned long d = ((cms * 36) % 1609) * 100 / 1609;
+      snprintf(buf, n, "%lu.%02lu mph", i, d);
+    }
   } else {
-    // running and walking: min/km pace = 100000 / cms seconds per km
-    if (cms < 10) { snprintf(buf, n, "--:-- /km"); return; }
-    unsigned long spk = 100000 / cms;
-    snprintf(buf, n, "%lu:%02lu /km", spk / 60, spk % 60);
+    if (!s_imperial) {
+      if (cms < 10) { snprintf(buf, n, "--:-- /km"); return; }
+      unsigned long spk = 100000 / cms;
+      snprintf(buf, n, "%lu:%02lu /km", spk / 60, spk % 60);
+    } else {
+      if (cms < 10) { snprintf(buf, n, "--:-- /mi"); return; }
+      unsigned long spm = 160934 / cms;
+      snprintf(buf, n, "%lu:%02lu /mi", spm / 60, spm % 60);
+    }
   }
 }
 
@@ -179,14 +207,30 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     if (window_stack_get_top_window() == s_select_win && s_sel_gps) prv_update_gps_label();
   }
 
-  t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL);
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_CYCLING);
   if (t) {
     int iv = (int)t->value->int8;
-    if (iv >= 5 && iv <= 30) {
-      s_hr_interval_s = iv;
-      s_hr_tick_count = 0;
-      persist_write_int(PERSIST_KEY_HR_INTERVAL, iv);
-    }
+    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_CYCLING] = iv; persist_write_int(PERSIST_KEY_HR_CYCLING, iv); }
+  }
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_RUNNING);
+  if (t) {
+    int iv = (int)t->value->int8;
+    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_RUNNING] = iv; persist_write_int(PERSIST_KEY_HR_RUNNING, iv); }
+  }
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_WALKING);
+  if (t) {
+    int iv = (int)t->value->int8;
+    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_WALKING] = iv; persist_write_int(PERSIST_KEY_HR_WALKING, iv); }
+  }
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_GPS_ACCURACY);
+  if (t) {
+    int acc = (int)t->value->int8;
+    if (acc == 15 || acc == 25 || acc == 50) { s_gps_accuracy = acc; persist_write_int(PERSIST_KEY_GPS_ACCURACY, acc); }
+  }
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_UNITS);
+  if (t) {
+    s_imperial = (t->value->int8 == 1);
+    persist_write_int(PERSIST_KEY_UNITS, s_imperial ? 1 : 0);
   }
 
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
@@ -239,7 +283,9 @@ static void prv_send_cmd(int action) {
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
   dict_write_int8(iter, MESSAGE_KEY_CMD_ACTION, (int8_t)action);
   if (action == CMD_START) {
-    dict_write_int8(iter, MESSAGE_KEY_CMD_SPORT, (int8_t)s_sport);
+    dict_write_int8(iter, MESSAGE_KEY_CMD_SPORT,            (int8_t)s_sport);
+    dict_write_int8(iter, MESSAGE_KEY_SETTINGS_GPS_ACCURACY,(int8_t)s_gps_accuracy);
+    dict_write_int8(iter, MESSAGE_KEY_SETTINGS_UNITS,       s_imperial ? 1 : 0);
   }
   app_message_outbox_send();
 }
@@ -315,7 +361,7 @@ static void prv_tick(struct tm *tick_time, TimeUnits units_changed) {
 
   // HR: read and send on its interval; redraw only if the value changed.
   s_hr_tick_count++;
-  if (s_hr_tick_count >= s_hr_interval_s) {
+  if (s_hr_tick_count >= s_hr_interval_s[s_sport]) {
     s_hr_tick_count = 0;
     int16_t prev_hr = s_hr_bpm;
     prv_read_hr();
@@ -713,8 +759,17 @@ static void prv_workout_unload(Window *win) {
 
 static void prv_init(void) {
   s_icon_font_14 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ICONS_14));
-  int stored_iv = persist_read_int(PERSIST_KEY_HR_INTERVAL);
-  if (stored_iv >= 5 && stored_iv <= 30) s_hr_interval_s = stored_iv;
+  int iv;
+  iv = persist_read_int(PERSIST_KEY_HR_CYCLING);
+  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_CYCLING] = iv;
+  iv = persist_read_int(PERSIST_KEY_HR_RUNNING);
+  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_RUNNING] = iv;
+  iv = persist_read_int(PERSIST_KEY_HR_WALKING);
+  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_WALKING] = iv;
+  iv = persist_read_int(PERSIST_KEY_GPS_ACCURACY);
+  if (iv == 15 || iv == 25 || iv == 50) s_gps_accuracy = iv;
+  iv = persist_read_int(PERSIST_KEY_UNITS);
+  if (iv == 1) s_imperial = true;
 
   s_select_win = window_create();
   window_set_background_color(s_select_win, GColorBlack);
