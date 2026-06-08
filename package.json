@@ -22,7 +22,7 @@
     "capabilities": ["location", "configurable", "health"],
     "companionApp": {
       "android": {
-        "url": "https://github.com/cletjn/pebble-strava/releases",
+        "url": "https://github.com/cletqui/pebble-strava/releases",
         "apps": [
           { "package": "re.clet.pebblestrava.debug" },
           { "package": "re.clet.pebblestrava" }
