@@ -51,6 +51,11 @@
     "resources": {
       "media": [
         {
+          "type": "bitmap",
+          "name": "IMAGE_STRAVA_LOGO",
+          "file": "images/strava_logo.png"
+        },
+        {
           "type": "font",
           "name": "FONT_ICONS_14",
           "file": "fonts/icons.ttf",
