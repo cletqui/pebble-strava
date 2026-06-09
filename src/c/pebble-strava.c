@@ -23,6 +23,11 @@
 #define UPLOAD_SUCCESS 1
 #define UPLOAD_ERROR   2
 
+#define WORKER_UNKNOWN 0
+#define WORKER_OK      1
+#define WORKER_ERROR   2
+#define WORKER_NONE    3  // no worker configured
+
 // === App state ===
 
 typedef enum {
@@ -210,17 +215,17 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
   t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_CYCLING);
   if (t) {
     int iv = (int)t->value->int8;
-    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_CYCLING] = iv; persist_write_int(PERSIST_KEY_HR_CYCLING, iv); }
+    if (iv >= 1 && iv <= 30) { s_hr_interval_s[SPORT_CYCLING] = iv; persist_write_int(PERSIST_KEY_HR_CYCLING, iv); }
   }
   t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_RUNNING);
   if (t) {
     int iv = (int)t->value->int8;
-    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_RUNNING] = iv; persist_write_int(PERSIST_KEY_HR_RUNNING, iv); }
+    if (iv >= 1 && iv <= 30) { s_hr_interval_s[SPORT_RUNNING] = iv; persist_write_int(PERSIST_KEY_HR_RUNNING, iv); }
   }
   t = dict_find(iter, MESSAGE_KEY_SETTINGS_HR_INTERVAL_WALKING);
   if (t) {
     int iv = (int)t->value->int8;
-    if (iv >= 5 && iv <= 30) { s_hr_interval_s[SPORT_WALKING] = iv; persist_write_int(PERSIST_KEY_HR_WALKING, iv); }
+    if (iv >= 1 && iv <= 30) { s_hr_interval_s[SPORT_WALKING] = iv; persist_write_int(PERSIST_KEY_HR_WALKING, iv); }
   }
   t = dict_find(iter, MESSAGE_KEY_SETTINGS_GPS_ACCURACY);
   if (t) {
@@ -483,7 +488,7 @@ static void prv_reset_workout_state(void) {
 static void prv_upload_done_cb(void *ctx) {
   s_upload_done_timer = NULL;
   prv_reset_workout_state();
-  if (window_stack_get_top_window() == s_workout_win) window_stack_pop(true);
+  window_stack_pop_all(true);
 }
 
 // === Click handlers — Workout window ===
@@ -589,12 +594,18 @@ static void prv_update_gps_label(void) {
   bool hrm_ok = (mask & HealthServiceAccessibilityMaskAvailable) &&
                 health_service_peek_current_value(HealthMetricHeartRateBPM) > 0;
 
-  const char *wkr = s_worker_status == 1 ? "\xe2\x9c\x93" :  // ✓
-                    s_worker_status == 2 ? "!"               : "?";
-  snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "W%s HRM%s GPS%s",
-           wkr,
-           hrm_ok    ? "\xe2\x9c\x93" : "--",
-           s_gps_fix ? "\xe2\x9c\x93" : "--");
+  if (s_worker_status == WORKER_NONE) {
+    snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "HRM%s GPS%s",
+             hrm_ok    ? "\xe2\x9c\x93" : "--",
+             s_gps_fix ? "\xe2\x9c\x93" : "--");
+  } else {
+    const char *wkr = s_worker_status == WORKER_OK    ? "\xe2\x9c\x93" :
+                      s_worker_status == WORKER_ERROR  ? "!"             : "?";
+    snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "W%s HRM%s GPS%s",
+             wkr,
+             hrm_ok    ? "\xe2\x9c\x93" : "--",
+             s_gps_fix ? "\xe2\x9c\x93" : "--");
+  }
   text_layer_set_text(s_sel_gps, s_sel_gps_buf);
   text_layer_set_text_color(s_sel_gps, GColorLightGray);
 }
@@ -761,11 +772,11 @@ static void prv_init(void) {
   s_icon_font_14 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ICONS_14));
   int iv;
   iv = persist_read_int(PERSIST_KEY_HR_CYCLING);
-  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_CYCLING] = iv;
+  if (iv >= 1 && iv <= 30) s_hr_interval_s[SPORT_CYCLING] = iv;
   iv = persist_read_int(PERSIST_KEY_HR_RUNNING);
-  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_RUNNING] = iv;
+  if (iv >= 1 && iv <= 30) s_hr_interval_s[SPORT_RUNNING] = iv;
   iv = persist_read_int(PERSIST_KEY_HR_WALKING);
-  if (iv >= 5 && iv <= 30) s_hr_interval_s[SPORT_WALKING] = iv;
+  if (iv >= 1 && iv <= 30) s_hr_interval_s[SPORT_WALKING] = iv;
   iv = persist_read_int(PERSIST_KEY_GPS_ACCURACY);
   if (iv == 15 || iv == 25 || iv == 50) s_gps_accuracy = iv;
   iv = persist_read_int(PERSIST_KEY_UNITS);

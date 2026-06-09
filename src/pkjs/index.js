@@ -57,22 +57,22 @@ Pebble.addEventListener('ready', function() {
 
   var stored;
   stored = parseInt(storageGet('hrCycling')  || '0', 10);
-  if (stored >= 5 && stored <= 30) HR_CYCLING = stored;
+  if (stored >= 1 && stored <= 30) HR_CYCLING = stored;
   stored = parseInt(storageGet('hrRunning')  || '0', 10);
-  if (stored >= 5 && stored <= 30) HR_RUNNING = stored;
+  if (stored >= 1 && stored <= 30) HR_RUNNING = stored;
   stored = parseInt(storageGet('hrWalking')  || '0', 10);
-  if (stored >= 5 && stored <= 30) HR_WALKING = stored;
+  if (stored >= 1 && stored <= 30) HR_WALKING = stored;
   stored = parseInt(storageGet('gpsAccuracy') || '0', 10);
   if (stored === 15 || stored === 25 || stored === 50) GPS_ACCURACY = stored;
   stored = parseInt(storageGet('units') || '-1', 10);
   if (stored === 0 || stored === 1) UNITS = stored;
 
+  sendSettings();
   if (WORKER_URL && WORKER_SECRET) {
     pingWorker();
-    sendSettings();
   } else {
     sendToWatch({ 'CRED_REQUEST': 1 });
-    sendToWatch({ 'UPLOAD_MSG': 'Open Settings to configure' });
+    sendToWatch({ 'WORKER_STATUS': 3 }); // WORKER_NONE — no worker, hides W status
   }
 });
 
@@ -92,8 +92,13 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '.st{font-size:11px;color:#fc4c02;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;font-weight:600}' +
 'label{display:block;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;margin-top:12px}' +
 'label:first-of-type{margin-top:0}' +
-'input,select{width:100%;padding:11px 12px;background:#252525;border:1px solid #3a3a3a;border-radius:8px;color:#eee;font-size:15px;outline:none;-webkit-appearance:none}' +
-'input:focus,select:focus{border-color:#fc4c02}' +
+'input[type=text],input[type=url]{width:100%;padding:11px 12px;background:#252525;border:1px solid #3a3a3a;border-radius:8px;color:#eee;font-size:15px;outline:none;-webkit-appearance:none}' +
+'input[type=text]:focus,input[type=url]:focus{border-color:#fc4c02}' +
+'select{width:100%;padding:11px 12px;background:#252525;border:1px solid #3a3a3a;border-radius:8px;color:#eee;font-size:15px;outline:none;-webkit-appearance:none}' +
+'select:focus{border-color:#fc4c02}' +
+'.slider-row{display:flex;align-items:center;gap:10px}' +
+'.slider-row input[type=range]{flex:1;accent-color:#fc4c02;height:4px}' +
+'.slider-val{min-width:42px;text-align:right;font-size:14px;color:#eee;white-space:nowrap}' +
 '.hint{font-size:12px;color:#555;margin-top:8px;line-height:1.4}' +
 'button{width:100%;padding:14px;background:#fc4c02;border:none;border-radius:10px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;letter-spacing:.02em}' +
 'button:active{background:#d94000}' +
@@ -101,10 +106,10 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<h1>Strava GPX Mailer</h1>' +
 '<p class="sub">Setup &amp; Preferences</p>' +
 '<div class="section">' +
-'<p class="st">Worker</p>' +
+'<p class="st">Worker <span style="font-size:10px;color:#555;text-transform:none;letter-spacing:0;font-weight:400">(optional — for email delivery)</span></p>' +
 '<label>Worker URL</label>' +
 '<input id="u" type="url" value="__URL__" placeholder="https://pebble-strava.xxx.workers.dev">' +
-'<p class="hint">From <code>wrangler deploy</code> output.</p>' +
+'<p class="hint">From <code>wrangler deploy</code> output. Leave blank to skip email — GPX will always be saved to your phone.</p>' +
 '<label>Upload Secret</label>' +
 '<input id="s" type="text" value="__SECRET__" placeholder="your_upload_secret">' +
 '<p class="hint">The UPLOAD_SECRET set with <code>wrangler secret put</code>.</p>' +
@@ -112,27 +117,12 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<div class="section">' +
 '<p class="st">Heart Rate Interval</p>' +
 '<label>Cycling</label>' +
-'<select id="hr-c">' +
-'<option value="5">5 s — most responsive</option>' +
-'<option value="10">10 s</option>' +
-'<option value="15">15 s</option>' +
-'<option value="30">30 s — best battery</option>' +
-'</select>' +
+'<div class="slider-row"><input type="range" id="hr-c" min="1" max="30" step="1" oninput="document.getElementById(\'hr-c-v\').textContent=this.value+\' s\'"><span id="hr-c-v" class="slider-val">5 s</span></div>' +
 '<label>Running</label>' +
-'<select id="hr-r">' +
-'<option value="5">5 s — most responsive</option>' +
-'<option value="10">10 s</option>' +
-'<option value="15">15 s</option>' +
-'<option value="30">30 s — best battery</option>' +
-'</select>' +
+'<div class="slider-row"><input type="range" id="hr-r" min="1" max="30" step="1" oninput="document.getElementById(\'hr-r-v\').textContent=this.value+\' s\'"><span id="hr-r-v" class="slider-val">5 s</span></div>' +
 '<label>Walking</label>' +
-'<select id="hr-w">' +
-'<option value="5">5 s</option>' +
-'<option value="10">10 s</option>' +
-'<option value="15">15 s — recommended</option>' +
-'<option value="30">30 s — best battery</option>' +
-'</select>' +
-'<p class="hint">How often the watch reads &amp; sends HR to the companion. Lower = smoother data, higher = longer battery.</p>' +
+'<div class="slider-row"><input type="range" id="hr-w" min="1" max="30" step="1" oninput="document.getElementById(\'hr-w-v\').textContent=this.value+\' s\'"><span id="hr-w-v" class="slider-val">15 s</span></div>' +
+'<p class="hint">How often the watch reads &amp; sends HR. 1 s = most detail, 30 s = best battery.</p>' +
 '</div>' +
 '<div class="section">' +
 '<p class="st">GPS</p>' +
@@ -154,9 +144,10 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '</div>' +
 '<button onclick="save()">Save &amp; Close</button>' +
 '<script>' +
-'document.getElementById("hr-c").value="__HR_CYCLING__";' +
-'document.getElementById("hr-r").value="__HR_RUNNING__";' +
-'document.getElementById("hr-w").value="__HR_WALKING__";' +
+'(function(){var c=__HR_CYCLING__,r=__HR_RUNNING__,w=__HR_WALKING__;' +
+'document.getElementById("hr-c").value=c;document.getElementById("hr-c-v").textContent=c+" s";' +
+'document.getElementById("hr-r").value=r;document.getElementById("hr-r-v").textContent=r+" s";' +
+'document.getElementById("hr-w").value=w;document.getElementById("hr-w-v").textContent=w+" s";})();' +
 'document.getElementById("gps").value="__GPS_ACCURACY__";' +
 'document.getElementById("units").value="__UNITS__";' +
 'function save(){' +
@@ -203,11 +194,11 @@ Pebble.addEventListener('webviewclosed', function(e) {
 
     var iv;
     iv = parseInt(data.hrCycling  || '0', 10);
-    if (iv >= 5 && iv <= 30) { HR_CYCLING = iv; storageSet('hrCycling', String(iv)); }
+    if (iv >= 1 && iv <= 30) { HR_CYCLING = iv; storageSet('hrCycling', String(iv)); }
     iv = parseInt(data.hrRunning  || '0', 10);
-    if (iv >= 5 && iv <= 30) { HR_RUNNING = iv; storageSet('hrRunning', String(iv)); }
+    if (iv >= 1 && iv <= 30) { HR_RUNNING = iv; storageSet('hrRunning', String(iv)); }
     iv = parseInt(data.hrWalking  || '0', 10);
-    if (iv >= 5 && iv <= 30) { HR_WALKING = iv; storageSet('hrWalking', String(iv)); }
+    if (iv >= 1 && iv <= 30) { HR_WALKING = iv; storageSet('hrWalking', String(iv)); }
     iv = parseInt(data.gpsAccuracy || '0', 10);
     if (iv === 15 || iv === 25 || iv === 50) { GPS_ACCURACY = iv; storageSet('gpsAccuracy', String(iv)); }
     iv = parseInt(data.units || '-1', 10);
@@ -225,9 +216,12 @@ Pebble.addEventListener('webviewclosed', function(e) {
       sendToWatch({ 'UPLOAD_MSG': 'Saved! Pinging...' });
       pingWorker();
     } else if (WORKER_URL) {
+      sendToWatch({ 'CRED_REQUEST': 1 });
+      sendToWatch({ 'WORKER_STATUS': 3 });
       sendToWatch({ 'UPLOAD_MSG': 'URL saved — add secret' });
     } else {
-      sendToWatch({ 'UPLOAD_MSG': 'Open Settings to configure' });
+      sendToWatch({ 'CRED_REQUEST': 1 });
+      sendToWatch({ 'WORKER_STATUS': 3 });
     }
   } catch (err) {
     console.log('Config parse error: ' + err);

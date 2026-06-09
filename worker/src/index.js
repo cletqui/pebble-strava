@@ -35,11 +35,12 @@ async function handleUpload(request, env) {
     return json({ ok: false, error: 'Invalid JSON' }, 400);
   }
 
-  const { gpx, sport, name, desc } = body;
+  const { gpx, sport, name, desc, startDate } = body;
   if (!gpx) return json({ ok: false, error: 'Missing gpx field' }, 400);
 
   const activityName = name || (sport === 'ride' ? 'Cycling' : 'Running') + ' - Pebble';
-  const filename     = activityName.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/ /g, '_') + '.gpx';
+  const dateSuffix   = startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? `_${startDate}` : '';
+  const filename     = activityName.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/ /g, '_') + dateSuffix + '.gpx';
 
   const result = await sendEmail(env, activityName, filename, gpx, sport, desc);
   if (!result.ok) {

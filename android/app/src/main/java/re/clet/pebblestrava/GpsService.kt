@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -17,6 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -324,52 +326,92 @@ class GpsService : Service() {
     // === Upload ===
 
     private fun uploadAsync() {
-        val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
-        val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
-        if (url.isEmpty() || secret.isEmpty()) {
-            messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "No credentials")
-            return
-        }
         messenger.sendUploadStatus(Constants.UPLOAD_PENDING)
         isUploading = true
         Thread {
             try {
                 val activityName = buildActivityName()
-                val desc = buildDesc()
-                val gpx  = buildGpx(activityName)
-                val body = JSONObject().apply {
-                    put("gpx",   gpx)
-                    put("sport", when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "walk" })
-                    put("name",  activityName)
-                    put("desc",  desc)
-                }.toString()
+                val desc         = buildDesc()
+                val gpx          = buildGpx(activityName)
+                val startDate    = SimpleDateFormat("yyyy-MM-dd", Locale.US).also {
+                    it.timeZone = TimeZone.getTimeZone("UTC")
+                }.format(Date(trackpoints.first().time))
+                val filename = activityName
+                    .replace(Regex("[^a-zA-Z0-9 _-]"), "").trim()
+                    .replace(' ', '_') + "_$startDate.gpx"
 
-                val conn = URL("$url/upload").openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.doOutput      = true
-                conn.setRequestProperty("Content-Type",  "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $secret")
-                conn.connectTimeout = 15000
-                conn.readTimeout    = 15000
-                conn.outputStream.write(body.toByteArray(Charsets.UTF_8))
+                saveGpxToDownloads(filename, gpx)
+                messenger.sendUploadStatus(Constants.UPLOAD_SUCCESS)
+                updateNotification("GPX saved ✓")
 
-                if (conn.responseCode == 200) {
-                    messenger.sendUploadStatus(Constants.UPLOAD_SUCCESS)
-                    updateNotification("GPX sent ✓")
-                } else {
-                    messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "HTTP ${conn.responseCode}")
-                    updateNotification("Upload failed")
+                val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
+                val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
+                if (url.isNotEmpty() && secret.isNotEmpty()) {
+                    uploadToWorker(url, secret, gpx, activityName, desc, startDate)
                 }
-                conn.disconnect()
             } catch (e: Exception) {
-                messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "Network error")
-                updateNotification("Upload failed")
+                Log.e("GpsService", "Save/upload error", e)
+                messenger.sendUploadStatus(Constants.UPLOAD_ERROR, "Save failed")
+                updateNotification("Save failed")
             } finally {
                 isUploading = false
-                // Give the messenger's coroutine 500 ms to deliver the status before stopping.
                 Handler(Looper.getMainLooper()).postDelayed({ stopSelf() }, 500)
             }
         }.start()
+    }
+
+    private fun saveGpxToDownloads(filename: String, gpx: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                put(MediaStore.Downloads.MIME_TYPE, "application/gpx+xml")
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw Exception("MediaStore insert returned null")
+            contentResolver.openOutputStream(uri)?.use { it.write(gpx.toByteArray()) }
+                ?: throw Exception("Could not open output stream")
+        } else {
+            val dir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            java.io.File(dir, filename).writeText(gpx)
+        }
+    }
+
+    private fun uploadToWorker(
+        url: String, secret: String,
+        gpx: String, activityName: String, desc: String, startDate: String
+    ) {
+        try {
+            val body = JSONObject().apply {
+                put("gpx",       gpx)
+                put("sport",     when (sport) { Constants.SPORT_CYCLING -> "ride"; Constants.SPORT_RUNNING -> "run"; else -> "walk" })
+                put("name",      activityName)
+                put("desc",      desc)
+                put("startDate", startDate)
+            }.toString()
+
+            val conn = URL("$url/upload").openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput      = true
+            conn.setRequestProperty("Content-Type",  "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $secret")
+            conn.connectTimeout = 15000
+            conn.readTimeout    = 15000
+            conn.outputStream.write(body.toByteArray(Charsets.UTF_8))
+
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code == 200) {
+                updateNotification("GPX saved & emailed ✓")
+            } else {
+                Log.w("GpsService", "Worker upload failed: HTTP $code")
+                updateNotification("Saved — email failed ($code)")
+            }
+        } catch (e: Exception) {
+            Log.w("GpsService", "Worker upload error", e)
+            updateNotification("Saved — email failed")
+        }
     }
 
     // === GPX builder ===
