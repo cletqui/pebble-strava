@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'android-v*'
+      - 'v*'
 
 jobs:
   build:
@@ -39,22 +40,25 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Companion ${{ github.ref_name }}"
+          name: "Strava GPX ${{ github.ref_name }}"
           body: |
-            ## Pebble Strava GPS Companion
+            ## Strava GPX — Android Companion ${{ github.ref_name }}
 
-            Android companion app for the Pebble Strava GPX Mailer watchapp.
+            Android companion app for the **Strava GPX** Pebble watchapp.
+            GPS tracking, GPX building, and local save all happen on the phone.
 
             ### Install
             1. Enable **Install unknown apps** for your browser or file manager in Android Settings → Apps.
             2. Download `pebble-strava-companion-*.apk` below and open it to install.
             3. Grant location permissions (*Allow all the time*) when prompted.
-            4. On Android 12+: open the app and grant **battery optimisation exemption** so GPS works in the background.
+            4. On Android 12+: open the app and tap **Disable Battery Optimization** → Allow.
+               ⚠️ Without this, Android blocks GPS for background-started services and no fixes will arrive.
 
-            ### How it works
-            The companion auto-starts when you open the watchapp and stops after the GPX is sent (or when you close the watchapp).
-            GPS tracking, distance, GPX building, and Worker upload all happen on the phone.
-            Configure the Worker URL and secret once via **Pebble app → long-press Strava GPX Mailer → Settings**.
+            ### What it does
+            The companion auto-starts when you open the watchapp on your Pebble and stops after the GPX is saved.
+            GPS tracking, Haversine distance, GPX building (with embedded heart rate), and optional Worker upload all run on the phone.
+
+            Configure settings once via **Core Devices → long-press Strava GPX → ⚙ Settings**.
           files: pebble-strava-companion-*.apk
           draft: false
           prerelease: false
