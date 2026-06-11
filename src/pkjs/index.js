@@ -8,8 +8,9 @@ var WORKER_SECRET = _cfg.WORKER_SECRET || '';
 var HR_CYCLING    = parseInt(_cfg.HR_CYCLING   || '5',  10);
 var HR_RUNNING    = parseInt(_cfg.HR_RUNNING   || '5',  10);
 var HR_WALKING    = parseInt(_cfg.HR_WALKING   || '15', 10);
-var GPS_ACCURACY  = parseInt(_cfg.GPS_ACCURACY || '25', 10);
-var UNITS         = parseInt(_cfg.UNITS        || '0',  10);
+var GPS_ACCURACY        = parseInt(_cfg.GPS_ACCURACY        || '25', 10);
+var UNITS               = parseInt(_cfg.UNITS               || '0',  10);
+var DOWNLOAD_SUBFOLDER  = _cfg.DOWNLOAD_SUBFOLDER || '';
 
 function storageGet(key) {
   try { return Pebble.getLocalStorageItem(key) || ''; } catch(e) { return ''; }
@@ -66,6 +67,8 @@ Pebble.addEventListener('ready', function() {
   if (stored === 15 || stored === 25 || stored === 50) GPS_ACCURACY = stored;
   stored = parseInt(storageGet('units') || '-1', 10);
   if (stored === 0 || stored === 1) UNITS = stored;
+  var storedSub = storageGet('downloadSubfolder');
+  if (storedSub !== undefined) DOWNLOAD_SUBFOLDER = storedSub;
 
   sendSettings();
   if (WORKER_URL && WORKER_SECRET) {
@@ -142,6 +145,12 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<option value="1">Imperial — mi, mph, min/mi</option>' +
 '</select>' +
 '</div>' +
+'<div class="section">' +
+'<p class="st">Storage</p>' +
+'<label>Download subfolder</label>' +
+'<input id="subfolder" type="text" value="__SUBFOLDER__" placeholder="pebble-strava">' +
+'<p class="hint">Subfolder inside Downloads/ to save GPX files. Leave blank to save directly to Downloads.</p>' +
+'</div>' +
 '<button onclick="save()">Save &amp; Close</button>' +
 '<script>' +
 '(function(){var c=__HR_CYCLING__,r=__HR_RUNNING__,w=__HR_WALKING__;' +
@@ -158,7 +167,8 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '    hrRunning:document.getElementById("hr-r").value,' +
 '    hrWalking:document.getElementById("hr-w").value,' +
 '    gpsAccuracy:document.getElementById("gps").value,' +
-'    units:document.getElementById("units").value' +
+'    units:document.getElementById("units").value,' +
+'    downloadSubfolder:document.getElementById("subfolder").value.trim()' +
 '  };' +
 '  location.href="pebblejs://close#"+encodeURIComponent(JSON.stringify(d));' +
 '}' +
@@ -176,7 +186,8 @@ Pebble.addEventListener('showConfiguration', function() {
     .replace('__HR_RUNNING__',   String(HR_RUNNING))
     .replace('__HR_WALKING__',   String(HR_WALKING))
     .replace('__GPS_ACCURACY__', String(GPS_ACCURACY))
-    .replace('__UNITS__',        String(UNITS));
+    .replace('__UNITS__',        String(UNITS))
+    .replace('__SUBFOLDER__',    htmlEscape(DOWNLOAD_SUBFOLDER));
   Pebble.openURL('data:text/html,' + encodeURIComponent(html));
 });
 
@@ -203,6 +214,11 @@ Pebble.addEventListener('webviewclosed', function(e) {
     if (iv === 15 || iv === 25 || iv === 50) { GPS_ACCURACY = iv; storageSet('gpsAccuracy', String(iv)); }
     iv = parseInt(data.units || '-1', 10);
     if (iv === 0 || iv === 1) { UNITS = iv; storageSet('units', String(iv)); }
+    if (data.downloadSubfolder !== undefined) {
+      DOWNLOAD_SUBFOLDER = data.downloadSubfolder;
+      storageSet('downloadSubfolder', data.downloadSubfolder);
+      sendToWatch({ 'SETTINGS_DOWNLOAD_SUBFOLDER': data.downloadSubfolder });
+    }
 
     if (WORKER_URL) {
       var creds = { 'CRED_URL': WORKER_URL };

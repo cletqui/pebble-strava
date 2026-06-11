@@ -1,15 +1,21 @@
-# Strava GPX Mailer
+# Strava GPX
 
-A Pebble Time 2 watchapp that records cycling, running, and walking workouts with GPS and heart rate, then emails you the GPX file for import into Strava.
+A Pebble Time 2 watchapp that records cycling, running, and walking workouts with GPS and heart rate data and saves a GPX file directly to your phone — ready to import into Strava or any other platform.
 
 ## How it works
 
 1. Open the watchapp — Core Devices auto-starts the Android GPS service
-2. Select sport on the watch — Cycling, Running, or Walking
+2. Select sport — Cycling, Running, or Walking
 3. Workout records elapsed time, GPS distance + speed/pace, heart rate
-4. On stop, a GPX file with embedded HR data is POSTed to a Cloudflare Worker
-5. The Worker emails the GPX + a stats summary (distance, active duration, avg HR) via Resend
-6. Open the email, import the `.gpx` into Strava — ~10 seconds
+4. On stop, a GPX file with embedded HR data is saved to `Downloads/` on your phone
+5. *(Optional)* If a Cloudflare Worker is configured, the GPX is also emailed to you
+6. Import the `.gpx` into Strava — ~10 seconds
+
+## Screenshots
+
+| Select sport | Active workout |
+|:---:|:---:|
+| ![Select sport screen](screenshots/emery_select.png) | ![Workout screen](screenshots/emery_workout.png) |
 
 ## Architecture
 
@@ -21,18 +27,19 @@ Live elapsed timer (1s tick)     Adaptive GPS rate: 1s/1m active, 5s/10m idle
 HRM poll → send HR on change  →  HR samples stored with timestamps
                               ←  GPS distance + speed + fix status (on change only)
 UP×2 → CMD_STOP               →  Build GPX with correlated HR data
-                              →  POST to Cloudflare Worker
+                                 Save GPX to Downloads/ (or subfolder)
+                              →  POST to Cloudflare Worker (optional)
                               ←  UPLOAD_STATUS (success / error)
 
 Phone (PebbleKit JS — config only)
 ───────────────────────────────────
-Settings WebView (inline HTML — Worker URL, secret, HR intervals, GPS accuracy, units)
+Settings WebView (inline HTML — Worker URL, secret, HR intervals, GPS accuracy, units, subfolder)
 Credential relay: phone localStorage ↔ watch flash
 Worker status ping on JS ready
 All settings → watch persist storage on receive
 
-Cloudflare Worker
-─────────────────
+Cloudflare Worker (optional)
+─────────────────────────────
 GET  /ping              Bearer auth check (watch status indicator)
 POST /upload            Receive GPX → send email via Resend
 ```
@@ -48,7 +55,7 @@ Core Devices binds to `PebbleListenerService` (a `BasePebbleListenerService`) wh
 - Pebble Time 2 (emery platform)
 - Android phone with **Core Devices** (`coredevices.coreapp`) — the Rebble Pebble app
 - **Pebble Strava companion APK** (required for GPS)
-- A Cloudflare Worker (free tier) + Resend account (free tier, 3k emails/month)
+- *(Optional)* A Cloudflare Worker (free tier) + Resend account (free tier, 3k emails/month) — only needed for email delivery; GPX is always saved locally
 
 ## Setup
 
@@ -103,16 +110,17 @@ The service auto-starts on device reboot.
 
 ### 4. Configure credentials
 
-Long-press **Strava GPX Mailer** in Core Devices → tap the ⚙ gear icon.
+Long-press **Strava GPX** in Core Devices → tap the ⚙ gear icon.
 
 The settings page has four sections:
 
 | Section | Settings |
 |---|---|
-| **Worker** | Worker URL, Upload Secret |
-| **Heart Rate Interval** | Separate interval for Cycling / Running / Walking (5 / 10 / 15 / 30 s) |
+| **Worker** | Worker URL, Upload Secret (optional — leave blank for local-only save) |
+| **Heart Rate Interval** | Separate interval for Cycling / Running / Walking (1–30 s sliders) |
 | **GPS** | Accuracy filter threshold (15 m strict / 25 m default / 50 m lenient) |
 | **Display** | Units — Metric (km, km/h, min/km) or Imperial (mi, mph, min/mi) |
+| **Storage** | Download subfolder — subfolder within `Downloads/` for GPX files (optional) |
 
 Tap **Save & Close**. Credentials are stored in watch persistent flash memory and relayed to the Android companion automatically — no separate Android configuration needed.
 
@@ -129,7 +137,8 @@ Tap **Save & Close**. Credentials are stored in watch persistent flash memory an
 
 Status line at the bottom:
 - `Open companion app` — shown when the companion hasn't responded yet
-- `W✓/!/? HRM✓/-- GPS✓/--` — once connected: Worker reachable, HRM available, GPS fix
+- `HRM✓/-- GPS✓/--` — no worker configured: just HRM and GPS status
+- `W✓/! HRM✓/-- GPS✓/--` — worker configured: adds worker reachability indicator
 
 **Workout screen**
 - Large (white): elapsed time, ticking every second — dims to gray when paused
@@ -141,7 +150,7 @@ Status line at the bottom:
 - UP × 2 within 3s: stop and upload
 - BACK × 2 within 3s: cancel (discard workout)
 
-After stopping, upload status is shown on the workout screen. Double vibration = email sent.
+After stopping, the GPX is always saved to `Downloads/` (or your configured subfolder) first. If a worker is configured, it is also emailed. Double vibration = success; long pulse = error.
 
 ## Sports
 
@@ -176,6 +185,7 @@ Auto-generated by the Pebble SDK starting at base **10000** (array format in `pa
 | `SETTINGS_HR_INTERVAL_WALKING` | 10014 | PKJS→watch | int8 | Walking HR interval in seconds |
 | `SETTINGS_GPS_ACCURACY` | 10015 | PKJS→watch→companion | int8 | Accuracy filter in meters (15/25/50) |
 | `SETTINGS_UNITS` | 10016 | PKJS→watch→companion | int8 | 0=metric 1=imperial |
+| `SETTINGS_DOWNLOAD_SUBFOLDER` | 10017 | PKJS→watch→companion | cstring | Subfolder under Downloads/ for GPX files |
 
 > After any `messageKeys` change in `package.json`, run `pebble clean && pebble build` (incremental build won't regenerate `message_keys.auto.c`).
 
@@ -195,7 +205,8 @@ android/                   GPS companion Android app (Kotlin)
     PebbleMessenger.kt     DefaultPebbleSender wrapper: sends GPS/status/creds to watch
     MainActivity.kt        Permission setup, battery opt, GPS status display
     BootReceiver.kt        Auto-start service after reboot
-    Constants.kt           AppMessage keys (10000–10016) + prefs keys + app UUID
+    Constants.kt           AppMessage keys (10000–10017) + prefs keys + app UUID
+screenshots/           Emulator screenshots for app store listing
 ```
 
 ## Building & debugging

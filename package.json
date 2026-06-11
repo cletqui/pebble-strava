@@ -1,15 +1,15 @@
 {
   "name": "pebble-strava",
   "author": "clet",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "keywords": ["pebble-app"],
   "private": true,
   "dependencies": {},
   "pebble": {
-    "displayName": "Strava GPX Mailer",
-    "shortName": "GPX Mail",
-    "longName": "Strava GPX Mailer",
-    "uuid": "2d64ac7d-a175-4bb0-ba11-8c1997cff52d",
+    "displayName": "Strava GPX",
+    "shortName": "Strava GPX",
+    "longName": "Strava GPX",
+    "uuid": "136a1e15-7d76-4072-8046-fd01c7562f82",
     "companyName": "clet",
     "sdkVersion": "3",
     "enableMultiJS": true,
@@ -46,7 +46,8 @@
       "SETTINGS_HR_INTERVAL_RUNNING",
       "SETTINGS_HR_INTERVAL_WALKING",
       "SETTINGS_GPS_ACCURACY",
-      "SETTINGS_UNITS"
+      "SETTINGS_UNITS",
+      "SETTINGS_DOWNLOAD_SUBFOLDER"
     ],
     "resources": {
       "media": [

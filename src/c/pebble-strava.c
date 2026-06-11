@@ -12,8 +12,9 @@
 #define PERSIST_KEY_HR_CYCLING   3  // was global HR_INTERVAL — migrates naturally
 #define PERSIST_KEY_HR_RUNNING   4
 #define PERSIST_KEY_HR_WALKING   5
-#define PERSIST_KEY_GPS_ACCURACY 6
-#define PERSIST_KEY_UNITS        7
+#define PERSIST_KEY_GPS_ACCURACY  6
+#define PERSIST_KEY_UNITS         7
+#define PERSIST_KEY_SUBFOLDER     8
 
 #define SPORT_CYCLING 0
 #define SPORT_RUNNING 1
@@ -50,7 +51,7 @@ static uint32_t s_distance_m = 0;
 static uint32_t s_speed_cms  = 0;  // centimeters/sec from phone GPS
 static int16_t  s_hr_bpm     = 0;
 static bool     s_gps_fix      = false;
-static int8_t   s_worker_status = 0;  // 0=unknown 1=ok 2=error
+static int8_t   s_worker_status = WORKER_NONE;  // hide W until worker explicitly confirmed
 
 static bool      s_back_armed = false;
 static AppTimer *s_back_timer       = NULL;
@@ -237,6 +238,8 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
     s_imperial = (t->value->int8 == 1);
     persist_write_int(PERSIST_KEY_UNITS, s_imperial ? 1 : 0);
   }
+  t = dict_find(iter, MESSAGE_KEY_SETTINGS_DOWNLOAD_SUBFOLDER);
+  if (t) persist_write_string(PERSIST_KEY_SUBFOLDER, t->value->cstring);
 
   t = dict_find(iter, MESSAGE_KEY_UPLOAD_STATUS);
   if (t) {
@@ -271,15 +274,19 @@ static void prv_inbox_received(DictionaryIterator *iter, void *ctx) {
 }
 
 static void prv_send_creds(void) {
-  char url[128]    = {0};
-  char secret[64]  = {0};
+  char url[128]       = {0};
+  char secret[64]     = {0};
+  char subfolder[64]  = {0};
   if (!persist_read_string(PERSIST_KEY_URL,    url,    sizeof(url))    ||
       !persist_read_string(PERSIST_KEY_SECRET, secret, sizeof(secret)) ||
       url[0] == '\0') return;
+  persist_read_string(PERSIST_KEY_SUBFOLDER, subfolder, sizeof(subfolder));
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
   dict_write_cstring(iter, MESSAGE_KEY_CRED_URL,    url);
   dict_write_cstring(iter, MESSAGE_KEY_CRED_SECRET, secret);
+  if (subfolder[0] != '\0')
+    dict_write_cstring(iter, MESSAGE_KEY_SETTINGS_DOWNLOAD_SUBFOLDER, subfolder);
   app_message_outbox_send();
 }
 
@@ -580,7 +587,7 @@ static void prv_sel_click_config(void *ctx) {
 // === Sport select window ===
 
 static void prv_update_gps_label(void) {
-  if (s_worker_status == 0 && !s_gps_fix) {
+  if (s_worker_status == WORKER_NONE && !s_gps_fix) {
     // Companion app hasn't responded yet — guide the user
     snprintf(s_sel_gps_buf, sizeof(s_sel_gps_buf), "Open companion app");
     text_layer_set_text(s_sel_gps, s_sel_gps_buf);
@@ -798,7 +805,7 @@ static void prv_init(void) {
     .unload = prv_workout_unload,
   });
 
-  app_message_open(256, 256);
+  app_message_open(512, 512);
   app_message_register_inbox_received(prv_inbox_received);
 
   window_stack_push(s_select_win, false);

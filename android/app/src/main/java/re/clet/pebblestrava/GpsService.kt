@@ -51,8 +51,9 @@ class GpsService : Service() {
         const val EXTRA_HR_BPM        = "hr_bpm"
         const val EXTRA_CRED_URL      = "cred_url"
         const val EXTRA_CRED_SECRET   = "cred_secret"
-        const val EXTRA_GPS_ACCURACY  = "gps_accuracy"
-        const val EXTRA_UNITS         = "units"
+        const val EXTRA_GPS_ACCURACY       = "gps_accuracy"
+        const val EXTRA_UNITS              = "units"
+        const val EXTRA_DOWNLOAD_SUBFOLDER = "download_subfolder"
     }
 
     @Volatile private var isUploading = false
@@ -131,6 +132,9 @@ class GpsService : Service() {
             }
             val hr = intent.getIntExtra(EXTRA_HR_BPM, 0)
             if (hr > 0) hrSamples.add(HrSample(hr, System.currentTimeMillis()))
+
+            val subfolder = intent.getStringExtra(EXTRA_DOWNLOAD_SUBFOLDER)
+            if (subfolder != null) prefs().edit().putString(Constants.PREF_DOWNLOAD_SUBFOLDER, subfolder).apply()
 
             val url    = intent.getStringExtra(EXTRA_CRED_URL)
             val secret = intent.getStringExtra(EXTRA_CRED_SECRET)
@@ -361,18 +365,22 @@ class GpsService : Service() {
     }
 
     private fun saveGpxToDownloads(filename: String, gpx: String) {
+        val subfolder = (prefs().getString(Constants.PREF_DOWNLOAD_SUBFOLDER, "") ?: "").trim().trimStart('/').trimEnd('/')
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val relativePath = if (subfolder.isNotEmpty()) "Download/$subfolder/" else "Download/"
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, filename)
                 put(MediaStore.Downloads.MIME_TYPE, "application/gpx+xml")
+                put(MediaStore.Downloads.RELATIVE_PATH, relativePath)
             }
             val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw Exception("MediaStore insert returned null")
             contentResolver.openOutputStream(uri)?.use { it.write(gpx.toByteArray()) }
                 ?: throw Exception("Could not open output stream")
         } else {
-            val dir = android.os.Environment.getExternalStoragePublicDirectory(
+            val base = android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_DOWNLOADS)
+            val dir = if (subfolder.isNotEmpty()) java.io.File(base, subfolder) else base
             dir.mkdirs()
             java.io.File(dir, filename).writeText(gpx)
         }
