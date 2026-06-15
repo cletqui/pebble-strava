@@ -44,6 +44,7 @@ class PebbleListenerService : BasePebbleListenerService() {
             getInt(data, Constants.KEY_HR_BPM)?.let { if (it > 0) putExtra(GpsService.EXTRA_HR_BPM, it) }
             getText(data, Constants.KEY_CRED_URL)?.let                    { putExtra(GpsService.EXTRA_CRED_URL,           it) }
             getText(data, Constants.KEY_CRED_SECRET)?.let                 { putExtra(GpsService.EXTRA_CRED_SECRET,        it) }
+            getText(data, Constants.KEY_CRED_EMAIL)?.let                  { putExtra(GpsService.EXTRA_CRED_EMAIL,         it) }
             getText(data, Constants.KEY_SETTINGS_DOWNLOAD_SUBFOLDER)?.let { putExtra(GpsService.EXTRA_DOWNLOAD_SUBFOLDER, it) }
         }
 

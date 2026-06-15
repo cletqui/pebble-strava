@@ -5,6 +5,7 @@
 var _cfg          = (function() { try { return require('./config'); } catch(e) { return {}; } })();
 var WORKER_URL    = _cfg.WORKER_URL    || '';
 var WORKER_SECRET = _cfg.WORKER_SECRET || '';
+var USER_EMAIL    = _cfg.USER_EMAIL    || '';
 var HR_CYCLING    = parseInt(_cfg.HR_CYCLING   || '5',  10);
 var HR_RUNNING    = parseInt(_cfg.HR_RUNNING   || '5',  10);
 var HR_WALKING    = parseInt(_cfg.HR_WALKING   || '15', 10);
@@ -55,6 +56,7 @@ function pingWorker() {
 Pebble.addEventListener('ready', function() {
   WORKER_URL    = storageGet('workerUrl')    || WORKER_URL;
   WORKER_SECRET = storageGet('workerSecret') || WORKER_SECRET;
+  USER_EMAIL    = storageGet('userEmail')    || USER_EMAIL;
 
   var stored;
   stored = parseInt(storageGet('hrCycling')  || '0', 10);
@@ -116,6 +118,9 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '<label>Upload Secret</label>' +
 '<input id="s" type="text" value="__SECRET__" placeholder="your_upload_secret">' +
 '<p class="hint">The UPLOAD_SECRET set with <code>wrangler secret put</code>.</p>' +
+'<label>Your Email</label>' +
+'<input id="e" type="text" value="__EMAIL__" placeholder="you@example.com">' +
+'<p class="hint">GPX files will be emailed here after each activity.</p>' +
 '</div>' +
 '<div class="section">' +
 '<p class="st">Heart Rate Interval</p>' +
@@ -163,6 +168,7 @@ var CONFIG_HTML = '<!DOCTYPE html>' +
 '  var d={' +
 '    workerUrl:document.getElementById("u").value.trim(),' +
 '    workerSecret:document.getElementById("s").value.trim(),' +
+'    userEmail:document.getElementById("e").value.trim(),' +
 '    hrCycling:document.getElementById("hr-c").value,' +
 '    hrRunning:document.getElementById("hr-r").value,' +
 '    hrWalking:document.getElementById("hr-w").value,' +
@@ -182,6 +188,7 @@ Pebble.addEventListener('showConfiguration', function() {
   var html = CONFIG_HTML
     .replace('__URL__',          htmlEscape(WORKER_URL))
     .replace('__SECRET__',       htmlEscape(WORKER_SECRET))
+    .replace('__EMAIL__',        htmlEscape(USER_EMAIL))
     .replace('__HR_CYCLING__',   String(HR_CYCLING))
     .replace('__HR_RUNNING__',   String(HR_RUNNING))
     .replace('__HR_WALKING__',   String(HR_WALKING))
@@ -202,6 +209,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
 
     if (data.workerUrl)    { WORKER_URL    = data.workerUrl;    storageSet('workerUrl',    data.workerUrl); }
     if (data.workerSecret) { WORKER_SECRET = data.workerSecret; storageSet('workerSecret', data.workerSecret); }
+    if (data.userEmail)    { USER_EMAIL    = data.userEmail;    storageSet('userEmail',    data.userEmail); }
 
     var iv;
     iv = parseInt(data.hrCycling  || '0', 10);
@@ -223,6 +231,7 @@ Pebble.addEventListener('webviewclosed', function(e) {
     if (WORKER_URL) {
       var creds = { 'CRED_URL': WORKER_URL };
       if (WORKER_SECRET) creds['CRED_SECRET'] = WORKER_SECRET;
+      if (USER_EMAIL)    creds['CRED_EMAIL']   = USER_EMAIL;
       sendToWatch(creds);
     }
 
@@ -257,7 +266,11 @@ Pebble.addEventListener('appmessage', function(e) {
     WORKER_SECRET = msg.CRED_SECRET;
     storageSet('workerSecret', msg.CRED_SECRET);
   }
-  if ((msg.CRED_URL || msg.CRED_SECRET) && WORKER_URL && WORKER_SECRET) {
+  if (msg.CRED_EMAIL) {
+    USER_EMAIL = msg.CRED_EMAIL;
+    storageSet('userEmail', msg.CRED_EMAIL);
+  }
+  if ((msg.CRED_URL || msg.CRED_SECRET || msg.CRED_EMAIL) && WORKER_URL && WORKER_SECRET) {
     pingWorker();
     sendSettings();
   }

@@ -17,13 +17,14 @@ object Constants {
     const val KEY_CRED_REQUEST  = 10008
     const val KEY_CRED_URL      = 10009
     const val KEY_CRED_SECRET   = 10010
-    const val KEY_WORKER_STATUS                = 10011
-    const val KEY_SETTINGS_HR_INTERVAL_CYCLING = 10012
-    const val KEY_SETTINGS_HR_INTERVAL_RUNNING = 10013
-    const val KEY_SETTINGS_HR_INTERVAL_WALKING = 10014
-    const val KEY_SETTINGS_GPS_ACCURACY             = 10015
-    const val KEY_SETTINGS_UNITS                    = 10016
-    const val KEY_SETTINGS_DOWNLOAD_SUBFOLDER       = 10017
+    const val KEY_CRED_EMAIL    = 10011
+    const val KEY_WORKER_STATUS                = 10012
+    const val KEY_SETTINGS_HR_INTERVAL_CYCLING = 10013
+    const val KEY_SETTINGS_HR_INTERVAL_RUNNING = 10014
+    const val KEY_SETTINGS_HR_INTERVAL_WALKING = 10015
+    const val KEY_SETTINGS_GPS_ACCURACY             = 10016
+    const val KEY_SETTINGS_UNITS                    = 10017
+    const val KEY_SETTINGS_DOWNLOAD_SUBFOLDER       = 10018
 
     // CMD_ACTION values
     const val CMD_START  = 0
@@ -48,6 +49,7 @@ object Constants {
     const val PREFS_NAME              = "pebble_strava_prefs"
     const val PREF_WORKER_URL         = "worker_url"
     const val PREF_WORKER_SECRET      = "worker_secret"
+    const val PREF_USER_EMAIL         = "user_email"
     const val PREF_LAST_GPS_TIME      = "last_gps_time"
     const val PREF_LAST_GPS_ACC       = "last_gps_acc"
     const val PREF_LAST_APP_OPENED    = "last_app_opened_ms"   // epoch ms, 0 = never seen

@@ -35,14 +35,16 @@ async function handleUpload(request, env) {
     return json({ ok: false, error: 'Invalid JSON' }, 400);
   }
 
-  const { gpx, sport, name, desc, startDate } = body;
-  if (!gpx) return json({ ok: false, error: 'Missing gpx field' }, 400);
+  const { gpx, sport, name, desc, startDate, email } = body;
+  if (!gpx)   return json({ ok: false, error: 'Missing gpx field' }, 400);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return json({ ok: false, error: 'Missing or invalid email' }, 400);
 
   const activityName = name || (sport === 'ride' ? 'Cycling' : 'Running') + ' - Pebble';
   const dateSuffix   = startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? `_${startDate}` : '';
   const filename     = activityName.replace(/[^a-z0-9 _-]/gi, '').trim().replace(/ /g, '_') + dateSuffix + '.gpx';
 
-  const result = await sendEmail(env, activityName, filename, gpx, sport, desc);
+  const result = await sendEmail(env, email, activityName, filename, gpx, sport, desc);
   if (!result.ok) {
     return json({ ok: false, error: result.error }, 500);
   }
@@ -50,7 +52,7 @@ async function handleUpload(request, env) {
   return json({ ok: true });
 }
 
-async function sendEmail(env, activityName, filename, gpx, sport, desc) {
+async function sendEmail(env, email, activityName, filename, gpx, sport, desc) {
   const typeLabel = sport === 'ride' ? 'cycling' : sport === 'walk' ? 'walking' : 'running';
 
   const lines = [
@@ -73,7 +75,7 @@ async function sendEmail(env, activityName, filename, gpx, sport, desc) {
     },
     body: JSON.stringify({
       from:    'Pebble <onboarding@resend.dev>',
-      to:      env.USER_EMAIL,
+      to:      email,
       subject: activityName,
       text:    lines.join('\n'),
       attachments: [{

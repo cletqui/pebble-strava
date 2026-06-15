@@ -3,4 +3,5 @@
 module.exports = {
   WORKER_URL:    'https://pebble-strava.YOUR_SUBDOMAIN.workers.dev',
   WORKER_SECRET: 'YOUR_SECRET_HERE',  // must match UPLOAD_SECRET in worker/
+  USER_EMAIL:    'you@example.com',
 };

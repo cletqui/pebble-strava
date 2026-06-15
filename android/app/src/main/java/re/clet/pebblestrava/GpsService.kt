@@ -51,6 +51,7 @@ class GpsService : Service() {
         const val EXTRA_HR_BPM        = "hr_bpm"
         const val EXTRA_CRED_URL      = "cred_url"
         const val EXTRA_CRED_SECRET   = "cred_secret"
+        const val EXTRA_CRED_EMAIL    = "cred_email"
         const val EXTRA_GPS_ACCURACY       = "gps_accuracy"
         const val EXTRA_UNITS              = "units"
         const val EXTRA_DOWNLOAD_SUBFOLDER = "download_subfolder"
@@ -138,11 +139,13 @@ class GpsService : Service() {
 
             val url    = intent.getStringExtra(EXTRA_CRED_URL)
             val secret = intent.getStringExtra(EXTRA_CRED_SECRET)
-            if (url != null || secret != null) {
+            val email  = intent.getStringExtra(EXTRA_CRED_EMAIL)
+            if (url != null || secret != null || email != null) {
                 // Credentials received from watch — cancel any pending retry
                 credRetryHandler.removeCallbacks(credRetryRunnable)
                 if (url    != null) prefs().edit().putString(Constants.PREF_WORKER_URL,    url).apply()
                 if (secret != null) prefs().edit().putString(Constants.PREF_WORKER_SECRET, secret).apply()
+                if (email  != null) prefs().edit().putString(Constants.PREF_USER_EMAIL,    email).apply()
                 val u = url    ?: prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
                 val s = secret ?: prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
                 if (u.isNotEmpty() && s.isNotEmpty()) pingWorker(u, s)
@@ -350,8 +353,9 @@ class GpsService : Service() {
 
                 val url    = prefs().getString(Constants.PREF_WORKER_URL,    "") ?: ""
                 val secret = prefs().getString(Constants.PREF_WORKER_SECRET, "") ?: ""
-                if (url.isNotEmpty() && secret.isNotEmpty()) {
-                    uploadToWorker(url, secret, gpx, activityName, desc, startDate)
+                val email  = prefs().getString(Constants.PREF_USER_EMAIL,    "") ?: ""
+                if (url.isNotEmpty() && secret.isNotEmpty() && email.isNotEmpty()) {
+                    uploadToWorker(url, secret, email, gpx, activityName, desc, startDate)
                 }
             } catch (e: Exception) {
                 Log.e("GpsService", "Save/upload error", e)
@@ -387,7 +391,7 @@ class GpsService : Service() {
     }
 
     private fun uploadToWorker(
-        url: String, secret: String,
+        url: String, secret: String, email: String,
         gpx: String, activityName: String, desc: String, startDate: String
     ) {
         try {
@@ -397,6 +401,7 @@ class GpsService : Service() {
                 put("name",      activityName)
                 put("desc",      desc)
                 put("startDate", startDate)
+                put("email",     email)
             }.toString()
 
             val conn = URL("$url/upload").openConnection() as HttpURLConnection
