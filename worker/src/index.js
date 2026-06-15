@@ -74,7 +74,7 @@ async function sendEmail(env, email, activityName, filename, gpx, sport, desc) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from:    'Pebble <onboarding@resend.dev>',
+      from:    env.RESEND_FROM || 'Pebble <onboarding@resend.dev>',
       to:      email,
       subject: activityName,
       text:    lines.join('\n'),
